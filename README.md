@@ -1,13 +1,9 @@
-# GovStack Building Block Template
+# GovStack Analytics Building Block — Technical Specification
 
-This template is intended to be used by the various GovStack building block
-repos. Each building block repo will have at least 4 main sections, outlined in
-the directory structure below.
+Markdown export of the Analytics Building Block technical specification (v0.3, September 2026), originally published on the Experience Digital Transformation GitBook:
+https://experience-digital-transform.gitbook.io/experience-digital-transformation/analytics/technical-specifications
 
-## Gitbook and the published "Building Block Specifications" document
-
-Note that pushes to the `main` branch will automatically trigger a Gitbook build
-and deployment from the `/spec` directory.
+The specification lives in [`spec/`](spec/README.md). `spec/SUMMARY.md` provides the page order, so the folder can be connected to a GitBook space with Git Sync.
 
 ## Repo Structure
 
