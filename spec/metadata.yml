@@ -1,0 +1,64 @@
+# Capabilities and extensions of the Analytics Building Block (GovSpecs 2.0 model,
+# ARCH-TDR-1 and ARCH-ADR-7, both proposed and not yet decided).
+# Functionalities are the files in requirements/ and refer to these ids in `realises` and `extension`.
+# The extensions are only declared in this version; their requirements are not yet specified.
+
+capabilities:
+  - id: pooled-data-foundation
+    title: Pooled Data Foundation
+    description: Different authorities and business applications store statistically relevant data in one shared, validated and access-controlled place, instead of each building its own data collection.
+  - id: trustworthy-indicators
+    title: Trustworthy Indicators
+    description: Decision makers use indicator values whose sources and calculation are traceable.
+  - id: reusable-statistics
+    title: Reusable Statistics
+    description: Other systems and open data portals use the datasets and indicators of this building block without depending on a particular product.
+  - id: reconciled-evidence
+    title: Reconciled Evidence
+    description: When sources disagree about the same key figure, all estimates are kept, the deviation is visible, and a person decides with a recorded justification which value is official.
+
+extensions:
+  - id: source-reconciliation
+    title: Source Reconciliation
+    description: Several estimates per unit from different sources, deviation against a threshold, and a recorded human decision on which value is official.
+    requires: []
+  - id: proactive-triggers
+    title: Proactive Triggers
+    description: Approved threshold rules on indicators that send a signal to external systems when they are met.
+    requires: []
+  - id: geospatial-data
+    title: Geospatial Data
+    description: Spatial dimensions, administrative boundaries and access to indicator values via OGC API.
+    requires: []
+  - id: sql-access
+    title: SQL Access
+    description: Read-only SQL access to fixed views over the PostgreSQL protocol.
+    requires: []
+  - id: natural-language-query
+    title: Natural Language Query
+    description: Questions in everyday language, with the generated query shown before it is executed.
+    requires: [sql-access]
+  - id: predictive-scoring
+    title: Predictive Scoring
+    description: Versioned models, a scoring interface and the provenance of every score.
+    requires: []
+  - id: open-data-publication
+    title: Open Data Publication
+    description: A DCAT catalogue of published indicators and datasets for open data portals.
+    requires: []
+  - id: data-pull
+    title: Data Pull
+    description: The building block fetches dataset versions itself from registered sources on a schedule.
+    requires: []
+  - id: iceberg-provision
+    title: Iceberg Provision
+    description: Read access for query engines to the contents of dataset versions via the Iceberg REST Catalog API.
+    requires: []
+  - id: statistical-exchange
+    title: Statistical Exchange (SDMX)
+    description: The full SDMX 3.0 REST interface for statistics offices and international reporting.
+    requires: []
+  - id: reproducibility
+    title: Reproducibility
+    description: Guarantee that indicator values can be recalculated exactly, with the status REPRODUCIBLE or TRACEABLE.
+    requires: []

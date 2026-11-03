@@ -1,0 +1,3064 @@
+openapi: 3.1.0
+info:
+  title: GovStack Analytics Building Block API
+  version: 1.0.0-draft
+  summary: Indicator service with traceable provenance
+  description: >-
+    Core interface of the Analytics Building Block: data stewards and supplying
+    systems create datasets, register their Table Schemas and deliver dataset
+    versions as Data Packages; the building block calculates indicators from
+    published definition versions, returns their values as JSON-stat 2.0 or CSV,
+    keeps a W3C PROV-O provenance record for every calculation and announces
+    changes as CloudEvents. The file follows the GovStack Cross-BB API Design
+    Guide; the registered BB code used in problem types, OAuth scopes and event
+    types is `analytics`.
+
+
+    Requirement levels: every operation and webhook carries
+    `x-govstack-analytics-requirement-level` with `MUST` (mandatory in the core)
+    or `SHOULD` (recommended). The extension is defined in section 8.1 of the
+    Analytics specification.
+
+
+    Callers: no operation is citizen-facing. Officials such as data stewards and
+    analysts call the API with a user access token (`analyticsUserAuth`);
+    supplying systems, dashboards, portals and other Building Blocks call it
+    with a service access token (`analyticsServiceAuth`). Both are OAuth 2.0
+    access tokens issued through the Identity Building Block; OpenID Connect ID
+    Tokens are not accepted as access tokens. Read permissions on individual
+    datasets and indicators are further governed by the access management of the
+    platform: the building block returns no data and sends no events the caller
+    is not authorised for.
+
+
+    Errors are RFC 9457 Problem Details with a type of the form
+    `https://govstack.global/problems/analytics/{problem-slug}` and the
+    `traceId` of the request. Problem fields never carry personal data or
+    system-internal details such as stack traces, host names or query fragments.
+
+
+    Language: the API does not localise content. The default and only response
+    language is English (`en`) for problem `title` and `detail`; titles and
+    labels in the catalogue are returned as they were stored.
+
+
+    Idempotency: every POST that creates a resource or starts processing requires
+    an `Idempotency-Key` header following draft-ietf-httpapi-idempotency-key-header-07.
+    The replay window is controlled by the installation parameter
+    `idempotencyReplayWindow` and lasts at least 24 hours; after it expires a
+    reused key is processed as a new request.
+
+
+    Asynchronous work: deliveries, calculations and large downloads answer
+    `202 Accepted` with a `Location` header and the current state of a local
+    operation resource (receipt, calculation or download). Each is polled with
+    `GET` at its `Location` until it reaches a terminal status; no operation
+    supports cancellation.
+
+
+    Open points not yet covered: dedicated access classes for datasets and
+    indicators, and a plain CSV delivery without a Data Package (both open
+    decisions in the specification).
+  contact:
+    name: GovStack Analytics Working Group
+    url: https://govstack.global/
+  license:
+    name: CC-BY-4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+  x-govstack-api-guide:
+    version: 0.3.0-draft
+    rulesetVersion: 0.3.0-draft
+servers:
+  - url: https://{gatewayHost}/analytics
+    description: >-
+      Base URL of an installation behind the API gateway of the platform. The
+      default host uses a reserved documentation domain and is not a production
+      system.
+    variables:
+      gatewayHost:
+        default: api.example.org
+        description: Host name of the API gateway of the installation.
+security:
+  - analyticsUserAuth:
+      - bb:analytics:catalogue:read
+  - analyticsServiceAuth:
+      - bb:analytics:catalogue:read
+tags:
+  - name: Catalogue
+    description: Datasets, schemas, dataset versions, indicators and code lists.
+  - name: Ingestion
+    description: Delivery, validation and withdrawal of dataset versions.
+  - name: Indicators
+    description: Indicator definition versions and calculations.
+  - name: Values
+    description: Retrieval of indicator values.
+  - name: Provenance
+    description: Provenance records of calculations.
+  - name: Export
+    description: Content of dataset versions and asynchronous downloads.
+  - name: Events
+    description: Subscriptions and the CloudEvents sent to subscribers.
+  - name: Health
+    description: Operational liveness endpoint.
+
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness check
+      description: >-
+        Unversioned operational endpoint. Answers 200 when the building block
+        can accept work and 503 when it temporarily cannot. Unauthenticated and
+        free of data and system-internal details.
+      x-govstack-analytics-requirement-level: SHOULD
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The building block is alive and able to accept work.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthStatus' }
+        '500': { $ref: '#/components/responses/ServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/catalogue:
+    get:
+      tags: [Catalogue]
+      operationId: getCatalogue
+      summary: Get the catalogue entry point
+      description: >-
+        Returns the catalogue as a DCAT 3 catalog: links to the paginated
+        dataset and indicator collections, the calculation languages the
+        building block can execute and the size above which results are
+        delivered asynchronously.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: Catalogue with JSON-LD context (DCAT 3).
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Catalogue' }
+            application/ld+json:
+              schema: { $ref: '#/components/schemas/Catalogue' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/datasets:
+    get:
+      tags: [Catalogue]
+      operationId: listDatasets
+      summary: List datasets
+      description: >-
+        Returns a cursor-paginated page of catalogue entries of the datasets the
+        caller is authorised for, ordered by dataset identifier. Can be filtered
+        by processing stage and origin.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Cursor'
+        - name: processingStage
+          in: query
+          required: false
+          description: Equality filter on the processing stage from the code list of the installation.
+          schema: { type: string, minLength: 1 }
+          x-govstack-analytics-requirement-level: SHOULD
+        - name: origin
+          in: query
+          required: false
+          description: Equality filter on the origin of the dataset (ORIGINAL or DERIVED).
+          schema: { $ref: '#/components/schemas/Origin' }
+      responses:
+        '200':
+          description: A page of dataset catalogue entries with JSON-LD context (DCAT 3).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DatasetPage' }
+            application/ld+json:
+              schema: { $ref: '#/components/schemas/DatasetPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [Catalogue]
+      operationId: createDataset
+      summary: Create a dataset
+      description: >-
+        Creates a dataset with a client-supplied identifier. The building block
+        sets the origin itself (ORIGINAL). A dataset identifier that already
+        exists is rejected with 409.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:catalogue:write
+        - analyticsServiceAuth:
+            - bb:analytics:catalogue:write
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: Identifier, title and descriptive metadata of the new dataset.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DatasetCreate' }
+      responses:
+        '201':
+          description: The dataset was created.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DatasetEntry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/datasets/{datasetId}:
+    parameters:
+      - $ref: '#/components/parameters/DatasetId'
+    get:
+      tags: [Catalogue]
+      operationId: getDataset
+      summary: Get the catalogue entry of a dataset
+      description: >-
+        Returns the catalogue entry of a dataset with a reference to its current
+        schema, its latest valid version, a reference to all versions and the
+        dependent indicators.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: Catalogue entry with JSON-LD context (DCAT 3).
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DatasetEntry' }
+            application/ld+json:
+              schema: { $ref: '#/components/schemas/DatasetEntry' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/datasets/{datasetId}/schema:
+    parameters:
+      - $ref: '#/components/parameters/DatasetId'
+    get:
+      tags: [Catalogue]
+      operationId: getCurrentSchema
+      summary: Get the current Table Schema
+      description: Returns the current Table Schema of the dataset per Data Package Standard 2.0.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The current Table Schema.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Content-Location:
+              description: Path of the schema version that is current.
+              schema: { type: string, format: uri-reference }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableSchema' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    put:
+      tags: [Catalogue]
+      operationId: putSchema
+      summary: Set the Table Schema (creates a new schema version)
+      description: >-
+        Registers the Table Schema of the dataset. Every accepted schema becomes
+        a new, immutable schema version; earlier versions remain retrievable.
+        Field roles: an explicit `role` property takes precedence. Otherwise
+        primary key fields are identifiers, a primary key field with a temporal
+        type is the time, and all other fields are measures. If several fields
+        qualify as time and none is marked explicitly, the schema is rejected
+        with 422. When replacing an existing schema, the caller should send the
+        ETag of the current schema in `If-Match`; a mismatch yields 412.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:catalogue:write
+        - analyticsServiceAuth:
+            - bb:analytics:catalogue:write
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        description: The Table Schema to register.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TableSchema' }
+      responses:
+        '200':
+          description: The schema replaced the previous one as a new schema version.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SchemaVersionRef' }
+        '201':
+          description: The first schema of the dataset was registered.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SchemaVersionRef' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/datasets/{datasetId}/schema/{schemaVersion}:
+    parameters:
+      - $ref: '#/components/parameters/DatasetId'
+      - $ref: '#/components/parameters/SchemaVersion'
+    get:
+      tags: [Catalogue]
+      operationId: getSchemaVersion
+      summary: Get a specific schema version
+      description: Returns an earlier or the current Table Schema of the dataset by its schema version.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The Table Schema of this schema version.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableSchema' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/datasets/{datasetId}/versions:
+    parameters:
+      - $ref: '#/components/parameters/DatasetId'
+    get:
+      tags: [Catalogue]
+      operationId: listDatasetVersions
+      summary: List the versions of a dataset
+      description: >-
+        Returns a cursor-paginated page of the versions of a dataset, newest
+        first, including withdrawn versions and versions whose content has been
+        deleted.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of dataset versions with JSON-LD context (DCAT 3).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DatasetVersionPage' }
+            application/ld+json:
+              schema: { $ref: '#/components/schemas/DatasetVersionPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [Ingestion]
+      operationId: deliverDatasetVersion
+      summary: Deliver a dataset version
+      description: >-
+        Delivers a dataset version as a Data Package per Data Package Standard
+        2.0 in a multipart request (RFC 7578): one part `datapackage` with the
+        `datapackage.json` descriptor, plus one part per resource named after
+        its `path`. Text formats are encoded in UTF-8. Validation against the
+        registered schema runs asynchronously: the response is the receipt in
+        status VALIDATING, which is polled at its `Location` and is also
+        announced by the `delivery.checked` event.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:dataset-version:deliver
+        - analyticsServiceAuth:
+            - bb:analytics:dataset-version:deliver
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: The Data Package descriptor and its resources.
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              description: >-
+                Multipart body with the descriptor in the part `datapackage` and
+                one further part per resource, named after the resource `path`.
+              required: [datapackage]
+              properties:
+                datapackage:
+                  $ref: '#/components/schemas/DataPackage'
+              additionalProperties:
+                type: string
+                description: Content of one resource of the Data Package, e.g. a CSV file.
+                contentMediaType: text/csv
+            encoding:
+              datapackage:
+                contentType: application/json
+            example:
+              datapackage:
+                $schema: https://datapackage.org/profiles/2.0/datapackage.json
+                name: labour_market_regional
+                resources:
+                  - name: labour_market_regional
+                    path: labour_market_regional.csv
+                    type: table
+                    format: csv
+                    encoding: utf-8
+      responses:
+        '202':
+          description: The delivery was accepted; poll the receipt for the validation result.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/datasets/{datasetId}/versions/{version}:
+    parameters:
+      - $ref: '#/components/parameters/DatasetId'
+      - $ref: '#/components/parameters/Version'
+    get:
+      tags: [Catalogue]
+      operationId: getDatasetVersion
+      summary: Get the metadata of a dataset version
+      description: >-
+        Returns the metadata of a dataset version: schema version, supplying
+        system, time of receipt, checksum and status. The metadata remain
+        available after the version was withdrawn or its content deleted.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The metadata of the dataset version.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DatasetVersion' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/datasets/{datasetId}/versions/{version}/withdraw:
+    parameters:
+      - $ref: '#/components/parameters/DatasetId'
+      - $ref: '#/components/parameters/Version'
+    post:
+      tags: [Ingestion]
+      operationId: withdrawDatasetVersion
+      summary: Withdraw a dataset version
+      description: >-
+        Withdraws a dataset version with a stated reason. The building block
+        deletes the content and keeps the metadata with status WITHDRAWN and the
+        reason. Only data stewards may withdraw, not supplying systems, so the
+        operation accepts user access tokens only. `latest` and new
+        calculations skip the version; dependent result versions are flagged
+        with `basedOnWithdrawn`. Sends `dataset.version.withdrawn`. The action
+        is naturally idempotent: withdrawing an already withdrawn version
+        returns its unchanged metadata.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:dataset-version:withdraw
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      requestBody:
+        required: true
+        description: The reason for the withdrawal.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WithdrawalRequest' }
+      responses:
+        '200':
+          description: The version is withdrawn; its metadata are returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DatasetVersion' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/datasets/{datasetId}/contents/{version}:
+    parameters:
+      - $ref: '#/components/parameters/DatasetId'
+      - $ref: '#/components/parameters/Version'
+    get:
+      tags: [Export]
+      operationId: exportDatasetVersion
+      summary: Export the content of a dataset version as CSV
+      description: >-
+        Returns the content of a dataset version as CSV per RFC 4180 in UTF-8.
+        Content above the size threshold stated in the catalogue is prepared
+        asynchronously and answered with 202 and a download. If the content was
+        deleted or the version withdrawn, the answer is 410 while the metadata
+        remain available.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:dataset-version:read
+        - analyticsServiceAuth:
+            - bb:analytics:dataset-version:read
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - name: format
+          in: query
+          required: false
+          description: Output format; only `csv` is defined.
+          schema:
+            type: string
+            description: Output format of the export.
+            enum: [csv]
+            default: csv
+      responses:
+        '200':
+          description: Content of the dataset version, CSV per RFC 4180 in UTF-8.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Content-Disposition: { $ref: '#/components/headers/ContentDisposition' }
+          content:
+            text/csv:
+              schema:
+                type: string
+                description: CSV with a header row; column names are the field names of the Table Schema.
+              example: |
+                region,year,unemployed,labour_force
+                R01,2024,4120,98000
+        '202': { $ref: '#/components/responses/DownloadAccepted' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Gone' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/receipts/{receiptId}:
+    parameters:
+      - $ref: '#/components/parameters/ReceiptId'
+    get:
+      tags: [Ingestion]
+      operationId: getReceipt
+      summary: Poll the receipt of a delivery
+      description: >-
+        Returns the receipt of a delivery. VALIDATING is non-terminal; ACCEPTED
+        (with the new version number) and REJECTED (with the violated rules) are
+        terminal. While validating, the response carries `Retry-After`.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:dataset-version:deliver
+        - analyticsServiceAuth:
+            - bb:analytics:dataset-version:deliver
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The current state of the receipt.
+          headers:
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/codelists/{codelistId}/versions/{schemaVersion}:
+    parameters:
+      - name: codelistId
+        in: path
+        required: true
+        description: Identifier of the code list, `<datasetId>.<field>`.
+        schema:
+          type: string
+          pattern: '^[a-z0-9_]+\.[A-Za-z0-9_]+$'
+          examples: [labour_market_regional.region]
+      - $ref: '#/components/parameters/SchemaVersion'
+    get:
+      tags: [Catalogue]
+      operationId: getCodelist
+      summary: Get a code list as a JSON-stat dimension response
+      description: >-
+        Returns a code list generated from the `categories` property of a field
+        in the Table Schema. Its version is the schema version it was taken from.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: JSON-stat 2.0, class dimension.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JsonStatDimension' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/indicators:
+    get:
+      tags: [Catalogue]
+      operationId: listIndicators
+      summary: List indicators
+      description: >-
+        Returns a cursor-paginated page of the indicators the caller is
+        authorised for, ordered by indicator identifier.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of indicator catalogue entries with JSON-LD context.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IndicatorPage' }
+            application/ld+json:
+              schema: { $ref: '#/components/schemas/IndicatorPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [Indicators]
+      operationId: createIndicator
+      summary: Create an indicator
+      description: >-
+        Creates an indicator with a client-supplied identifier and a title. An
+        identifier that already exists is rejected with 409.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:catalogue:write
+        - analyticsServiceAuth:
+            - bb:analytics:catalogue:write
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: Identifier and title of the new indicator.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IndicatorCreate' }
+      responses:
+        '201':
+          description: The indicator was created.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IndicatorEntry' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/indicators/{indicatorId}:
+    parameters:
+      - $ref: '#/components/parameters/IndicatorId'
+    get:
+      tags: [Catalogue]
+      operationId: getIndicator
+      summary: Get the catalogue entry of an indicator
+      description: >-
+        Returns the catalogue entry of an indicator with its latest definition
+        version, unit, frequency, input datasets and dimensions.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The catalogue entry of the indicator.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IndicatorEntry' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/indicators/{indicatorId}/versions:
+    parameters:
+      - $ref: '#/components/parameters/IndicatorId'
+    post:
+      tags: [Indicators]
+      operationId: createDefinitionVersion
+      summary: Create and publish a definition version
+      description: >-
+        Creates a definition version and publishes it; the version is immutable
+        afterwards and the building block sends `indicator.definition.published`.
+        Input datasets and dimensions are derived from the calculation.
+        Definitions in languages the building block cannot execute are rejected
+        with 422. A definition version that already exists is rejected with 409.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:catalogue:write
+        - analyticsServiceAuth:
+            - bb:analytics:catalogue:write
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: The definition version to publish.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DefinitionVersionCreate' }
+      responses:
+        '201':
+          description: The definition version was created and published.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DefinitionVersion' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/indicators/{indicatorId}/versions/{definitionVersion}:
+    parameters:
+      - $ref: '#/components/parameters/IndicatorId'
+      - name: definitionVersion
+        in: path
+        required: true
+        description: Version of the indicator definition.
+        schema:
+          type: string
+          minLength: 1
+          examples: ['2']
+    get:
+      tags: [Indicators]
+      operationId: getDefinitionVersion
+      summary: Get a definition version
+      description: Returns a published, immutable definition version of an indicator.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The definition version.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DefinitionVersion' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/indicators/{indicatorId}/calculations:
+    parameters:
+      - $ref: '#/components/parameters/IndicatorId'
+    post:
+      tags: [Indicators]
+      operationId: startCalculation
+      summary: Start a calculation
+      description: >-
+        Starts the calculation of a definition version asynchronously. The
+        calculation identifier is also the identifier of the result version and
+        of the provenance record. The calculation is polled at its `Location`;
+        completion is also signalled by `indicator.values.published`, failure by
+        `indicator.calculation.failed`.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:calculation:run
+        - analyticsServiceAuth:
+            - bb:analytics:calculation:run
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: The definition version to calculate.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CalculationRequest' }
+      responses:
+        '202':
+          description: The calculation was accepted; poll it for its status.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Calculation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/calculations/{calculationId}:
+    parameters:
+      - $ref: '#/components/parameters/CalculationId'
+    get:
+      tags: [Indicators]
+      operationId: getCalculation
+      summary: Poll the status of a calculation
+      description: >-
+        Returns the status of a calculation. PENDING and RUNNING are
+        non-terminal and carry `Retry-After`; SUCCEEDED and FAILED are terminal.
+        A failed calculation carries the problem in `error`.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:calculation:run
+        - analyticsServiceAuth:
+            - bb:analytics:calculation:run
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The current status of the calculation.
+          headers:
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Calculation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/lineage/{calculationId}:
+    parameters:
+      - $ref: '#/components/parameters/CalculationId'
+    get:
+      tags: [Provenance]
+      operationId: getLineage
+      summary: Get a provenance record
+      description: >-
+        Returns the provenance record of a calculation as W3C PROV-O in JSON-LD.
+        It remains available after the underlying data has been deleted or
+        withdrawn.
+      x-govstack-analytics-requirement-level: MUST
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: Provenance record per W3C PROV-O as JSON-LD.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/ld+json:
+              schema: { $ref: '#/components/schemas/ProvActivity' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/indicators/{indicatorId}/values:
+    parameters:
+      - $ref: '#/components/parameters/IndicatorId'
+    get:
+      tags: [Values]
+      operationId: getValues
+      summary: Get indicator values
+      description: >-
+        Without filters, returns all values of the current result version the
+        caller is authorised for. The response is one JSON-stat 2.0 dataset (or
+        its CSV equivalent), not a paginated collection; results above the size
+        threshold stated in the catalogue are answered with 202 and a download.
+        Filters per SDMX REST API v2 are recommended. Unknown or unsupported
+        parameters are rejected with 400.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:value:read
+        - analyticsServiceAuth:
+            - bb:analytics:value:read
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - name: format
+          in: query
+          required: false
+          description: Output format, JSON-stat 2.0 (`jsonstat`, default) or CSV (`csv`).
+          schema:
+            type: string
+            description: Output format of the values.
+            enum: [jsonstat, csv]
+            default: jsonstat
+          x-govstack-analytics-requirement-level: MUST
+        - name: resultVersion
+          in: query
+          required: false
+          description: Result version (calculation identifier); the current one if omitted.
+          schema: { type: string, minLength: 1, examples: [c-501] }
+          x-govstack-analytics-requirement-level: MUST
+        - name: c
+          in: query
+          required: false
+          description: >-
+            Component filter per SDMX REST API v2, one entry per dimension, e.g.
+            `c[region]=R01,R02` or `c[timePeriod]=ge:2023`. The parameter name
+            and its operators are defined by the external SDMX standard.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            description: Map of dimension identifier to SDMX filter expression.
+            additionalProperties:
+              type: string
+              description: SDMX filter expression for one dimension.
+          x-govstack-analytics-requirement-level: SHOULD
+        - name: updatedAfter
+          in: query
+          required: false
+          description: Only values changed since this point in time (RFC 3339).
+          schema: { type: string, format: date-time }
+          x-govstack-analytics-requirement-level: SHOULD
+      responses:
+        '200':
+          description: Values as JSON-stat 2.0 or CSV.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JsonStatDataset' }
+            text/csv:
+              schema:
+                type: string
+                description: >-
+                  Long format with the columns indicatorId, definitionVersion,
+                  resultVersion, one column per dimension, timePeriod, value,
+                  observationStatus, unitMultiplier and basedOnWithdrawn.
+              example: |
+                indicatorId,definitionVersion,resultVersion,region,timePeriod,value,observationStatus,unitMultiplier,basedOnWithdrawn
+                ur,2,c-501,R01,2024,4.2,A,0,false
+        '202': { $ref: '#/components/responses/DownloadAccepted' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/downloads/{downloadId}:
+    parameters:
+      - $ref: '#/components/parameters/DownloadId'
+    get:
+      tags: [Export]
+      operationId: getDownload
+      summary: Poll an asynchronous download
+      description: >-
+        Returns the state of an asynchronous download. PREPARING is
+        non-terminal and carries `Retry-After`; READY (with `contentHref`) and
+        FAILED are terminal. The prepared file is kept at least for the period
+        set by the installation parameter `downloadRetention`.
+      x-govstack-analytics-requirement-level: SHOULD
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:value:read
+        - analyticsServiceAuth:
+            - bb:analytics:value:read
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The current state of the download.
+          headers:
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Download' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/downloads/{downloadId}/content:
+    parameters:
+      - $ref: '#/components/parameters/DownloadId'
+    get:
+      tags: [Export]
+      operationId: getDownloadContent
+      summary: Fetch the file of a ready download
+      description: >-
+        Returns the prepared file of a download in status READY, with a SHA-256
+        checksum in `Repr-Digest`. Answers 409 while the download is not ready
+        and 410 after the retention period has expired.
+      x-govstack-analytics-requirement-level: SHOULD
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:value:read
+        - analyticsServiceAuth:
+            - bb:analytics:value:read
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The prepared file.
+          headers:
+            Repr-Digest:
+              description: SHA-256 checksum of the file per RFC 9530.
+              schema: { type: string }
+            Content-Disposition: { $ref: '#/components/headers/ContentDisposition' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JsonStatDataset' }
+            text/csv:
+              schema:
+                type: string
+                description: CSV in the same layout as the synchronous response.
+              example: |
+                region,year,unemployed,labour_force
+                R01,2024,4120,98000
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/subscriptions:
+    get:
+      tags: [Events]
+      operationId: listSubscriptions
+      summary: List subscriptions
+      description: Returns a cursor-paginated page of the caller's subscriptions.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:subscription:manage
+        - analyticsServiceAuth:
+            - bb:analytics:subscription:manage
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of subscriptions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [Events]
+      operationId: createSubscription
+      summary: Subscribe to events
+      description: >-
+        Subscribes a callback endpoint (`sink`) to event types. Field names
+        follow the CloudEvents Subscriptions API (working draft); the
+        identifier is assigned by the building block. Events are delivered as
+        HTTP POST requests described under `webhooks`. Failed deliveries are
+        retried; the installation documents retry policy and failure store in
+        its implementation profile.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:subscription:manage
+        - analyticsServiceAuth:
+            - bb:analytics:subscription:manage
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: Event types and callback endpoint of the subscription.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscriptionCreate' }
+      responses:
+        '201':
+          description: The subscription was created.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subscription' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/subscriptions/{subscriptionId}:
+    parameters:
+      - $ref: '#/components/parameters/SubscriptionId'
+    get:
+      tags: [Events]
+      operationId: getSubscription
+      summary: Get a subscription
+      description: Returns a subscription of the caller.
+      x-govstack-analytics-requirement-level: SHOULD
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:subscription:manage
+        - analyticsServiceAuth:
+            - bb:analytics:subscription:manage
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '200':
+          description: The subscription.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subscription' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    delete:
+      tags: [Events]
+      operationId: deleteSubscription
+      summary: End a subscription
+      description: Ends a subscription; no further events are delivered to its sink.
+      x-govstack-analytics-requirement-level: MUST
+      security:
+        - analyticsUserAuth:
+            - bb:analytics:subscription:manage
+        - analyticsServiceAuth:
+            - bb:analytics:subscription:manage
+      parameters:
+        - $ref: '#/components/parameters/Traceparent'
+      responses:
+        '204':
+          description: The subscription was ended; no body is returned.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+webhooks:
+  datasetVersionPublished:
+    post:
+      tags: [Events]
+      operationId: onDatasetVersionPublished
+      summary: dataset.version.published
+      description: Sent when a delivery was accepted and a new dataset version is available.
+      x-govstack-analytics-requirement-level: MUST
+      requestBody:
+        required: true
+        description: CloudEvents 1.0 envelope in structured mode.
+        content:
+          application/cloudevents+json:
+            schema: { $ref: '#/components/schemas/DatasetVersionPublishedEvent' }
+      responses:
+        '204': { description: The subscriber acknowledged the event. }
+        '410': { description: The sink is gone; the building block may end the subscription. }
+  datasetVersionWithdrawn:
+    post:
+      tags: [Events]
+      operationId: onDatasetVersionWithdrawn
+      summary: dataset.version.withdrawn
+      description: Sent when a data steward withdrew a dataset version.
+      x-govstack-analytics-requirement-level: MUST
+      requestBody:
+        required: true
+        description: CloudEvents 1.0 envelope in structured mode.
+        content:
+          application/cloudevents+json:
+            schema: { $ref: '#/components/schemas/DatasetVersionWithdrawnEvent' }
+      responses:
+        '204': { description: The subscriber acknowledged the event. }
+        '410': { description: The sink is gone; the building block may end the subscription. }
+  indicatorDefinitionPublished:
+    post:
+      tags: [Events]
+      operationId: onIndicatorDefinitionPublished
+      summary: indicator.definition.published
+      description: Sent when a definition version of an indicator was published.
+      x-govstack-analytics-requirement-level: MUST
+      requestBody:
+        required: true
+        description: CloudEvents 1.0 envelope in structured mode.
+        content:
+          application/cloudevents+json:
+            schema: { $ref: '#/components/schemas/IndicatorDefinitionPublishedEvent' }
+      responses:
+        '204': { description: The subscriber acknowledged the event. }
+        '410': { description: The sink is gone; the building block may end the subscription. }
+  indicatorValuesPublished:
+    post:
+      tags: [Events]
+      operationId: onIndicatorValuesPublished
+      summary: indicator.values.published
+      description: Sent when a calculation succeeded and its result version is retrievable.
+      x-govstack-analytics-requirement-level: MUST
+      requestBody:
+        required: true
+        description: CloudEvents 1.0 envelope in structured mode.
+        content:
+          application/cloudevents+json:
+            schema: { $ref: '#/components/schemas/IndicatorValuesPublishedEvent' }
+      responses:
+        '204': { description: The subscriber acknowledged the event. }
+        '410': { description: The sink is gone; the building block may end the subscription. }
+  indicatorCalculationFailed:
+    post:
+      tags: [Events]
+      operationId: onIndicatorCalculationFailed
+      summary: indicator.calculation.failed
+      description: Sent when a calculation failed.
+      x-govstack-analytics-requirement-level: MUST
+      requestBody:
+        required: true
+        description: CloudEvents 1.0 envelope in structured mode.
+        content:
+          application/cloudevents+json:
+            schema: { $ref: '#/components/schemas/IndicatorCalculationFailedEvent' }
+      responses:
+        '204': { description: The subscriber acknowledged the event. }
+        '410': { description: The sink is gone; the building block may end the subscription. }
+  deliveryChecked:
+    post:
+      tags: [Events]
+      operationId: onDeliveryChecked
+      summary: delivery.checked
+      description: >-
+        Sent when the validation of a delivery finished. Always sent to the
+        supplying system, regardless of its read permissions.
+      x-govstack-analytics-requirement-level: SHOULD
+      requestBody:
+        required: true
+        description: CloudEvents 1.0 envelope in structured mode.
+        content:
+          application/cloudevents+json:
+            schema: { $ref: '#/components/schemas/DeliveryCheckedEvent' }
+      responses:
+        '204': { description: The subscriber acknowledged the event. }
+        '410': { description: The sink is gone; the building block may end the subscription. }
+  datasetVersionContentRemoved:
+    post:
+      tags: [Events]
+      operationId: onDatasetVersionContentRemoved
+      summary: dataset.version.contentRemoved
+      description: Sent when the content of a dataset version was deleted while its metadata remain.
+      x-govstack-analytics-requirement-level: SHOULD
+      requestBody:
+        required: true
+        description: CloudEvents 1.0 envelope in structured mode.
+        content:
+          application/cloudevents+json:
+            schema: { $ref: '#/components/schemas/DatasetVersionContentRemovedEvent' }
+      responses:
+        '204': { description: The subscriber acknowledged the event. }
+        '410': { description: The sink is gone; the building block may end the subscription. }
+
+components:
+
+  securitySchemes:
+    analyticsUserAuth:
+      type: oauth2
+      description: >-
+        OAuth 2.0 access tokens for officials (data stewards, analysts), issued
+        by the OpenID Connect provider of the Identity Building Block with the
+        audience `analytics`. Authorization-code clients use PKCE with S256.
+        The API accepts access tokens only, never OpenID Connect ID Tokens.
+        Endpoints of the provider belong in the implementation profile.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://id.example.org/oauth2/authorize
+          tokenUrl: https://id.example.org/oauth2/token
+          refreshUrl: https://id.example.org/oauth2/token
+          scopes:
+            bb:analytics:catalogue:read: Read the catalogue, schemas, version metadata, code lists, definitions and provenance records.
+            bb:analytics:catalogue:write: Create datasets and indicators, register schemas and publish definition versions.
+            bb:analytics:dataset-version:deliver: Deliver dataset versions and read their receipts.
+            bb:analytics:dataset-version:withdraw: Withdraw dataset versions (data stewards only).
+            bb:analytics:dataset-version:read: Export the content of dataset versions.
+            bb:analytics:calculation:run: Start calculations and read their status.
+            bb:analytics:value:read: Read indicator values and downloads.
+            bb:analytics:subscription:manage: Manage event subscriptions.
+    analyticsServiceAuth:
+      type: oauth2
+      description: >-
+        OAuth 2.0 client credentials for service-to-service calls from
+        supplying systems, portals and other Building Blocks. Clients
+        authenticate as confidential clients; tokens are audience-restricted to
+        `analytics` and should be sender-constrained (RFC 8705 or RFC 9449).
+      flows:
+        clientCredentials:
+          tokenUrl: https://id.example.org/oauth2/token
+          scopes:
+            bb:analytics:catalogue:read: Read the catalogue, schemas, version metadata, code lists, definitions and provenance records.
+            bb:analytics:catalogue:write: Create datasets and indicators, register schemas and publish definition versions.
+            bb:analytics:dataset-version:deliver: Deliver dataset versions and read their receipts.
+            bb:analytics:dataset-version:read: Export the content of dataset versions.
+            bb:analytics:calculation:run: Start calculations and read their status.
+            bb:analytics:value:read: Read indicator values and downloads.
+            bb:analytics:subscription:manage: Manage event subscriptions.
+
+  parameters:
+    Traceparent:
+      name: traceparent
+      in: header
+      required: false
+      description: >-
+        W3C Trace Context. The building block propagates a valid received
+        context or creates a new one when it is absent or invalid.
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Client-generated opaque key that makes the request safe to retry. A
+        retry with the same key returns the original response; the same key
+        with a different request yields 422, a retry while the original is in
+        progress yields 409.
+      schema: { type: string, minLength: 1, maxLength: 255 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: Strong ETag of the current schema; a mismatch yields 412.
+      schema: { type: string }
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Maximum number of items to return in one page.
+      schema: { type: integer, minimum: 1, default: 50, maximum: 500 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor from `pageInfo.nextCursor` of a previous page; omit for the first page.
+      schema: { type: string, minLength: 1 }
+    DatasetId:
+      name: datasetId
+      in: path
+      required: true
+      description: Identifier of the dataset, chosen when it is created.
+      schema: { $ref: '#/components/schemas/DatasetId' }
+    IndicatorId:
+      name: indicatorId
+      in: path
+      required: true
+      description: Identifier of the indicator, chosen when it is created.
+      schema: { $ref: '#/components/schemas/IndicatorId' }
+    SchemaVersion:
+      name: schemaVersion
+      in: path
+      required: true
+      description: Schema version, assigned consecutively by the building block starting at 1.
+      schema: { type: integer, minimum: 1 }
+    Version:
+      name: version
+      in: path
+      required: true
+      description: Dataset version number starting at 1, or `latest` for the newest valid version.
+      schema:
+        type: string
+        pattern: '^([1-9][0-9]*|latest)$'
+        examples: ['3', latest]
+    CalculationId:
+      name: calculationId
+      in: path
+      required: true
+      description: Identifier of the calculation; also the identifier of the result version and of the provenance record.
+      schema: { type: string, minLength: 1, examples: [c-501] }
+    ReceiptId:
+      name: receiptId
+      in: path
+      required: true
+      description: Opaque identifier of the receipt of a delivery.
+      schema: { type: string, minLength: 1 }
+    DownloadId:
+      name: downloadId
+      in: path
+      required: true
+      description: Opaque identifier of an asynchronous download.
+      schema: { type: string, minLength: 1 }
+    SubscriptionId:
+      name: subscriptionId
+      in: path
+      required: true
+      description: Opaque identifier of a subscription, assigned by the building block.
+      schema: { type: string, minLength: 1 }
+
+  headers:
+    Location:
+      description: URI of the created resource or of the operation resource to poll.
+      schema: { type: string, format: uri-reference }
+    ETag:
+      description: Strong entity tag of the returned representation, for conditional requests.
+      schema: { type: string }
+    RetryAfter:
+      description: Suggested minimum number of seconds before polling again; present while the operation is not terminal.
+      schema: { type: integer, minimum: 1 }
+    ContentDisposition:
+      description: File name of the content per RFC 6266.
+      schema: { type: string }
+    CacheControl:
+      description: Caching directives; error responses use no-store.
+      schema: { type: string }
+    WwwAuthenticate:
+      description: Authentication challenge per RFC 9110 and RFC 6750.
+      schema: { type: string }
+
+  responses:
+    NotModified:
+      description: The representation is unchanged from the ETag sent in If-None-Match.
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+    DownloadAccepted:
+      description: >-
+        The result is larger than the threshold stated in the catalogue and is
+        prepared asynchronously; poll the download at `Location`.
+      headers:
+        Location: { $ref: '#/components/headers/Location' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Download' }
+    BadRequest:
+      description: The request is malformed or uses unknown or unsupported parameters.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/bad-request
+            title: Bad request
+            status: 400
+            detail: The query parameter 'region' is not supported; use c[region].
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    Unauthorized:
+      description: Authentication is required or the access token is invalid.
+      headers:
+        WWW-Authenticate: { $ref: '#/components/headers/WwwAuthenticate' }
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/authentication-required
+            title: Authentication required
+            status: 401
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    Forbidden:
+      description: The caller lacks the required scope or is not authorised for this dataset or indicator.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/permission-denied
+            title: Permission denied
+            status: 403
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    NotFound:
+      description: The addressed resource does not exist.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/resource-not-found
+            title: Resource not found
+            status: 404
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    Conflict:
+      description: >-
+        The request conflicts with the current state: the identifier already
+        exists, a request with the same Idempotency-Key is still in progress, or
+        a download is not ready yet.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/already-exists
+            title: Resource already exists
+            status: 409
+            detail: A dataset with the identifier 'labour_market_regional' already exists.
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    PreconditionFailed:
+      description: The If-Match precondition did not hold; the schema was changed in the meantime.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/precondition-failed
+            title: Precondition failed
+            status: 412
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    Gone:
+      description: The content was deleted or the version withdrawn; the metadata remain available.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/content-removed
+            title: Content removed
+            status: 410
+            detail: Version 3 of dataset 'labour_market_regional' was withdrawn.
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    UnsupportedMediaType:
+      description: The request media type is not supported by this endpoint.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/unsupported-media-type
+            title: Unsupported media type
+            status: 415
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    UnprocessableContent:
+      description: >-
+        The request is well-formed but cannot be processed: fields of the JSON
+        body are invalid (listed in `errors`), the schema has an ambiguous time
+        field, the calculation language cannot be executed, or the
+        Idempotency-Key was reused with a different request.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/AnalyticsProblem' }
+          examples:
+            invalidField:
+              summary: Invalid field in the request body
+              value:
+                type: https://govstack.global/problems/analytics/invalid-field
+                title: Validation failed
+                status: 422
+                detail: One field of the request failed validation.
+                traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+                errors:
+                  - pointer: /datasetId
+                    message: Must consist of lower-case letters, digits and underscores.
+            ambiguousTime:
+              summary: Schema with an ambiguous time field
+              value:
+                type: https://govstack.global/problems/analytics/ambiguous-time-field
+                title: Ambiguous time field
+                status: 422
+                detail: The fields 'year' and 'reference_date' both qualify as time; mark one with role 'time'.
+                traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+            unsupportedLanguage:
+              summary: Calculation language cannot be executed
+              value:
+                type: https://govstack.global/problems/analytics/unsupported-calculation-language
+                title: Unsupported calculation language
+                status: 422
+                detail: The calculation language 'x-custom' cannot be executed by this installation.
+                traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+            idempotencyKeyReused:
+              summary: Idempotency-Key reused with a different request
+              value:
+                type: https://govstack.global/problems/analytics/idempotency-key-reused
+                title: Idempotency-Key reused
+                status: 422
+                traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    ServerError:
+      description: An unexpected error occurred while processing the request.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/internal-error
+            title: Internal error
+            status: 500
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+    ServiceUnavailable:
+      description: The building block is temporarily unable to accept work.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://govstack.global/problems/analytics/service-unavailable
+            title: Service unavailable
+            status: 503
+            traceId: 6f1c3f0e2a9b4c8d7e6f5a4b3c2d1e0f
+
+  schemas:
+
+    # Shared GovStack schemas, vendored under api/common (guide 2.8).
+    Problem:
+      $ref: './common/govstack-openapi-common.yaml#/components/schemas/Problem'
+    ValidationProblem:
+      $ref: './common/govstack-openapi-common.yaml#/components/schemas/ValidationProblem'
+    FieldError:
+      $ref: './common/govstack-openapi-common.yaml#/components/schemas/FieldError'
+    PageInfo:
+      description: >-
+        Cursor metadata of a page. `total` is not provided; `nextCursor` is null
+        on the last page.
+      $ref: './common/govstack-openapi-common.yaml#/components/schemas/PageInfo'
+
+    AnalyticsProblem:
+      description: >-
+        Problem Details for 422 responses. Failures attributable to fields of
+        the JSON request body list them in `errors`; other failures omit it.
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          description: Optional field-level errors.
+          properties:
+            errors:
+              type: array
+              minItems: 1
+              description: One entry for each request field that failed validation.
+              items: { $ref: '#/components/schemas/FieldError' }
+
+    HealthStatus:
+      type: object
+      description: Body of a healthy liveness response; health itself is carried by the status code.
+      properties:
+        description:
+          type: string
+          description: Name of the service reporting its health.
+      examples:
+        - description: Analytics Building Block
+
+    JsonLdContext:
+      type: string
+      format: uri
+      description: >-
+        JSON-LD keyword `@context` (an external standard name): reference to the
+        context document of the specification, which maps the fields to DCAT 3,
+        DCTERMS and PROV-O.
+      examples: ['https://govstack.global/analytics/context/v1.jsonld']
+
+    DatasetId:
+      type: string
+      description: Identifier of a dataset, chosen when it is created; lower-case letters, digits and underscores.
+      pattern: '^[a-z0-9_]+$'
+      examples: [labour_market_regional]
+
+    IndicatorId:
+      type: string
+      description: Identifier of an indicator, chosen when it is created; lower-case letters, digits and underscores.
+      pattern: '^[a-z0-9_]+$'
+      examples: [ur]
+
+    Origin:
+      type: string
+      description: >-
+        Origin of a dataset: ORIGINAL for data received through ingestion,
+        DERIVED for versions the building block produced itself.
+      enum: [ORIGINAL, DERIVED]
+
+    Catalogue:
+      type: object
+      description: Entry point of the catalogue, a DCAT 3 catalog.
+      required: [datasetsHref, indicatorsHref, calculationLanguages]
+      properties:
+        '@context': { $ref: '#/components/schemas/JsonLdContext' }
+        title:
+          type: string
+          description: Title of the catalogue of this installation.
+        datasetsHref:
+          type: string
+          format: uri-reference
+          description: Paginated collection of the datasets (listDatasets).
+        indicatorsHref:
+          type: string
+          format: uri-reference
+          description: Paginated collection of the indicators (listIndicators).
+        calculationLanguages:
+          type: array
+          description: Calculation languages this installation can execute.
+          items:
+            type: string
+            description: Language identifier, e.g. vtl-2.1, ossie-<version> or a custom language with prefix x-.
+        asyncDownloadThresholdBytes:
+          type: integer
+          minimum: 1
+          description: Size above which results are delivered asynchronously; mandatory if asynchronous downloads are offered.
+      examples:
+        - '@context': https://govstack.global/analytics/context/v1.jsonld
+          title: National labour market statistics
+          datasetsHref: /v1/datasets
+          indicatorsHref: /v1/indicators
+          calculationLanguages: [vtl-2.1]
+          asyncDownloadThresholdBytes: 10485760
+
+    DatasetCreate:
+      type: object
+      description: Attributes accepted when creating a dataset.
+      required: [datasetId, title]
+      properties:
+        datasetId: { $ref: '#/components/schemas/DatasetId' }
+        title:
+          type: string
+          minLength: 1
+          description: Human-readable title of the dataset.
+        publisher:
+          type: string
+          description: Organisation responsible for the dataset.
+        processingStage:
+          type: string
+          description: Processing stage from the code list of the installation, e.g. raw or harmonised.
+      examples:
+        - datasetId: labour_market_regional
+          title: Regional labour market
+          publisher: Federal Employment Agency
+          processingStage: raw
+
+    DatasetEntry:
+      type: object
+      description: Catalogue entry of a dataset (DCAT 3 dataset).
+      required: [datasetId, title, origin, versionsHref]
+      properties:
+        '@context': { $ref: '#/components/schemas/JsonLdContext' }
+        datasetId: { $ref: '#/components/schemas/DatasetId' }
+        title:
+          type: string
+          description: Human-readable title of the dataset.
+        publisher:
+          type: string
+          description: Organisation responsible for the dataset.
+        origin: { $ref: '#/components/schemas/Origin' }
+        processingStage:
+          type: string
+          description: Processing stage from the code list of the installation.
+        schema:
+          type: object
+          description: Reference to the current schema; absent until a schema is registered.
+          required: [schemaVersion, href]
+          properties:
+            schemaVersion:
+              type: integer
+              minimum: 1
+              description: Current schema version.
+            href:
+              type: string
+              format: uri-reference
+              description: Path of the current schema version.
+        latestVersion:
+          type: object
+          description: The newest valid dataset version; absent while there is none.
+          required: [version, receivedAt, href]
+          properties:
+            version:
+              type: integer
+              minimum: 1
+              description: Number of the newest valid version.
+            receivedAt:
+              type: string
+              format: date-time
+              description: Time of receipt of that version.
+            href:
+              type: string
+              format: uri-reference
+              description: Path of that version.
+        versionsHref:
+          type: string
+          format: uri-reference
+          description: Paginated collection of all versions of the dataset.
+        indicators:
+          type: array
+          description: Paths of the indicators that use the dataset as input.
+          items:
+            type: string
+            format: uri-reference
+            description: Path of a dependent indicator.
+      examples:
+        - '@context': https://govstack.global/analytics/context/v1.jsonld
+          datasetId: labour_market_regional
+          title: Regional labour market
+          publisher: Federal Employment Agency
+          origin: ORIGINAL
+          processingStage: raw
+          schema:
+            schemaVersion: 1
+            href: /v1/datasets/labour_market_regional/schema/1
+          latestVersion:
+            version: 2
+            receivedAt: '2026-10-28T09:12:00Z'
+            href: /v1/datasets/labour_market_regional/versions/2
+          versionsHref: /v1/datasets/labour_market_regional/versions
+          indicators: [/v1/indicators/ur]
+
+    DatasetPage:
+      type: object
+      description: A cursor-paginated page of dataset catalogue entries.
+      required: [items, pageInfo]
+      properties:
+        '@context': { $ref: '#/components/schemas/JsonLdContext' }
+        items:
+          type: array
+          description: The dataset catalogue entries of this page.
+          items: { $ref: '#/components/schemas/DatasetEntry' }
+        pageInfo: { $ref: '#/components/schemas/PageInfo' }
+      examples:
+        - items:
+            - datasetId: labour_market_regional
+              title: Regional labour market
+              origin: ORIGINAL
+              versionsHref: /v1/datasets/labour_market_regional/versions
+          pageInfo:
+            nextCursor: null
+
+    SchemaVersionRef:
+      type: object
+      description: Reference to a schema version created by registering a Table Schema.
+      required: [datasetId, schemaVersion, href]
+      properties:
+        datasetId: { $ref: '#/components/schemas/DatasetId' }
+        schemaVersion:
+          type: integer
+          minimum: 1
+          description: The schema version assigned by the building block.
+        href:
+          type: string
+          format: uri-reference
+          description: Path of the schema version.
+      examples:
+        - datasetId: labour_market_regional
+          schemaVersion: 2
+          href: /v1/datasets/labour_market_regional/schema/2
+
+    DatasetVersion:
+      type: object
+      description: Metadata of a dataset version; kept after withdrawal or deletion of the content.
+      required: [datasetId, version, schemaVersion, receiptId, suppliedBy, receivedAt, checksum, status, contentAvailable]
+      properties:
+        datasetId: { $ref: '#/components/schemas/DatasetId' }
+        version:
+          type: integer
+          minimum: 1
+          description: Consecutive version number starting at 1.
+        schemaVersion:
+          type: integer
+          minimum: 1
+          description: Schema version the content was validated against.
+        receiptId:
+          type: string
+          description: Receipt of the delivery that created this version.
+        receivedAt:
+          type: string
+          format: date-time
+          description: Time of receipt (dct:issued).
+        checksum:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: SHA-256 checksum of the content.
+        suppliedBy:
+          type: string
+          description: Supplying system (prov:wasAttributedTo).
+        status:
+          type: string
+          description: VALID for a usable version, WITHDRAWN for a version withdrawn by a data steward.
+          enum: [VALID, WITHDRAWN]
+          x-extensible-enum: true
+        contentAvailable:
+          type: boolean
+          description: False once the content was deleted or the version withdrawn.
+        withdrawalReason:
+          type: string
+          description: Reason stated when the version was withdrawn.
+        withdrawnAt:
+          type: string
+          format: date-time
+          description: Time of the withdrawal.
+        href:
+          type: string
+          format: uri-reference
+          description: Path of the dataset version.
+      examples:
+        - datasetId: labour_market_regional
+          version: 3
+          schemaVersion: 1
+          receiptId: r-7f3a
+          receivedAt: '2026-10-30T08:00:00Z'
+          checksum: sha256:9f2c5d1e8b7a6f4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c
+          suppliedBy: employment-register
+          status: WITHDRAWN
+          contentAvailable: false
+          withdrawalReason: Test data delivered by mistake.
+          withdrawnAt: '2026-10-30T10:15:00Z'
+          href: /v1/datasets/labour_market_regional/versions/3
+
+    DatasetVersionPage:
+      type: object
+      description: A cursor-paginated page of dataset versions, newest first.
+      required: [items, pageInfo]
+      properties:
+        '@context': { $ref: '#/components/schemas/JsonLdContext' }
+        items:
+          type: array
+          description: The dataset versions of this page.
+          items: { $ref: '#/components/schemas/DatasetVersion' }
+        pageInfo: { $ref: '#/components/schemas/PageInfo' }
+      examples:
+        - items:
+            - datasetId: labour_market_regional
+              version: 1
+              schemaVersion: 1
+              receiptId: r-1c2d
+              receivedAt: '2026-10-28T09:12:00Z'
+              checksum: sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
+              suppliedBy: employment-register
+              status: VALID
+              contentAvailable: true
+          pageInfo:
+            nextCursor: null
+
+    WithdrawalRequest:
+      type: object
+      description: Request to withdraw a dataset version.
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          description: Reason for the withdrawal; kept with the metadata.
+      examples:
+        - reason: Test data delivered by mistake.
+
+    Receipt:
+      type: object
+      description: >-
+        Operation resource of a delivery. VALIDATING is non-terminal; ACCEPTED
+        and REJECTED are terminal. `version` is present only when ACCEPTED,
+        `errors` only when REJECTED.
+      required: [receiptId, datasetId, status, receivedAt]
+      properties:
+        receiptId:
+          type: string
+          description: Opaque identifier of the receipt.
+        datasetId: { $ref: '#/components/schemas/DatasetId' }
+        status:
+          type: string
+          description: VALIDATING while the delivery is checked, then ACCEPTED or REJECTED.
+          enum: [VALIDATING, ACCEPTED, REJECTED]
+          x-extensible-enum: true
+        version:
+          type: integer
+          minimum: 1
+          description: Number of the new dataset version; only when ACCEPTED.
+        checksum:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: SHA-256 checksum of the delivered content.
+        receivedAt:
+          type: string
+          format: date-time
+          description: Time of receipt.
+        checkedAt:
+          type: string
+          format: date-time
+          description: Time the validation finished; absent while VALIDATING.
+        href:
+          type: string
+          format: uri-reference
+          description: Path of the new dataset version; only when ACCEPTED.
+        errors:
+          type: array
+          description: Violated rules; only when REJECTED.
+          items: { $ref: '#/components/schemas/ValidationIssue' }
+      examples:
+        - receiptId: r-7f3a
+          datasetId: labour_market_regional
+          status: REJECTED
+          receivedAt: '2026-10-30T08:00:00Z'
+          checkedAt: '2026-10-30T08:00:04Z'
+          errors:
+            - resource: labour_market_regional
+              row: 17
+              field: region
+              rule: categories
+              message: Value 'R99' is not in the categories of the field.
+
+    ValidationIssue:
+      type: object
+      description: A violation of the registered schema found in a delivered resource.
+      required: [rule, message]
+      properties:
+        resource:
+          type: string
+          description: Name of the Data Package resource.
+        row:
+          type: integer
+          minimum: 1
+          description: Data row, counted without the header row.
+        field:
+          type: string
+          description: Name of the field in the Table Schema.
+        rule:
+          type: string
+          description: Violated rule of the Table Schema, e.g. type, required, categories or primaryKey.
+        message:
+          type: string
+          description: Human-readable explanation of the violation.
+
+    DataPackage:
+      type: object
+      description: >-
+        Data Package descriptor per Data Package Standard 2.0 (datapackage.org).
+        Field names are those of the external standard.
+      required: [$schema, resources]
+      properties:
+        $schema:
+          type: string
+          const: 'https://datapackage.org/profiles/2.0/datapackage.json'
+          description: Profile and version of the Data Package Standard.
+        name:
+          type: string
+          description: Name of the package.
+        resources:
+          type: array
+          minItems: 1
+          description: Resources of the package; each is sent as its own multipart part.
+          items:
+            type: object
+            description: A tabular resource of the package.
+            required: [name, path]
+            properties:
+              name:
+                type: string
+                description: Name of the resource.
+              path:
+                type: string
+                description: Path of the resource; also the name of its multipart part.
+              type:
+                type: string
+                const: table
+                description: Resource type; only tables are accepted.
+              format:
+                type: string
+                description: File format, e.g. csv or jsonl.
+              encoding:
+                type: string
+                const: utf-8
+                description: Character encoding; only UTF-8 is accepted.
+              dialect:
+                type: object
+                description: Table Dialect, e.g. the delimiter; RFC 4180 defaults apply when absent.
+      examples:
+        - $schema: https://datapackage.org/profiles/2.0/datapackage.json
+          name: labour_market_regional
+          resources:
+            - name: labour_market_regional
+              path: labour_market_regional.csv
+              type: table
+              format: csv
+              encoding: utf-8
+
+    TableSchema:
+      type: object
+      description: >-
+        Table Schema per Data Package Standard 2.0. Field names are those of
+        the external standard; `role` is an extension defined by this
+        specification.
+      required: [$schema, fields]
+      properties:
+        $schema:
+          type: string
+          const: 'https://datapackage.org/profiles/2.0/tableschema.json'
+          description: Profile and version of the Table Schema.
+        fields:
+          type: array
+          minItems: 1
+          description: Fields of the table.
+          items:
+            type: object
+            description: A field of the table.
+            required: [name, type]
+            properties:
+              name:
+                type: string
+                description: Name of the field; also the column name.
+              type:
+                type: string
+                description: Table Schema type, e.g. string, integer, number, year or date.
+              role:
+                type: string
+                description: >-
+                  Role of the field (extension of this specification):
+                  identifier, time, measure or attribute. Derived by convention
+                  when absent.
+                enum: [identifier, time, measure, attribute]
+              categories:
+                type: array
+                description: Permitted codes with optional labels; the source of the generated code list.
+                items:
+                  description: A code, either as a plain value or with a label.
+                  oneOf:
+                    - type: string
+                      description: Code without a label.
+                    - type: object
+                      description: Code with a label.
+                      required: [value]
+                      properties:
+                        value:
+                          type: string
+                          description: The code.
+                        label:
+                          type: string
+                          description: Monolingual label of the code.
+        primaryKey:
+          type: array
+          description: Names of the fields that form the primary key.
+          items:
+            type: string
+            description: Name of a key field.
+      examples:
+        - $schema: https://datapackage.org/profiles/2.0/tableschema.json
+          fields:
+            - name: region
+              type: string
+              categories:
+                - value: R01
+                  label: North
+            - name: year
+              type: year
+            - name: unemployed
+              type: integer
+            - name: labour_force
+              type: integer
+          primaryKey: [region, year]
+
+    IndicatorCreate:
+      type: object
+      description: Attributes accepted when creating an indicator.
+      required: [indicatorId, title]
+      properties:
+        indicatorId: { $ref: '#/components/schemas/IndicatorId' }
+        title:
+          type: string
+          minLength: 1
+          description: Human-readable title of the indicator.
+      examples:
+        - indicatorId: ur
+          title: Unemployment rate
+
+    IndicatorEntry:
+      type: object
+      description: Catalogue entry of an indicator.
+      required: [indicatorId, title]
+      properties:
+        '@context': { $ref: '#/components/schemas/JsonLdContext' }
+        indicatorId: { $ref: '#/components/schemas/IndicatorId' }
+        title:
+          type: string
+          description: Human-readable title of the indicator.
+        unit:
+          type: string
+          description: UCUM unit of the latest definition version.
+        latestDefinitionVersion:
+          type: string
+          description: The latest published definition version; absent before the first one.
+        frequency:
+          type: string
+          description: Code from SDMX CL_FREQ.
+        inputDatasets:
+          type: array
+          description: Datasets the latest definition version reads.
+          items: { $ref: '#/components/schemas/DatasetId' }
+        dimensions:
+          type: array
+          description: Dimensions of the indicator values.
+          items:
+            type: string
+            description: Identifier of a dimension.
+        href:
+          type: string
+          format: uri-reference
+          description: Path of the indicator.
+      examples:
+        - indicatorId: ur
+          title: Unemployment rate
+          unit: '%'
+          latestDefinitionVersion: '2'
+          frequency: A
+          inputDatasets: [labour_market_regional]
+          dimensions: [region, timePeriod]
+          href: /v1/indicators/ur
+
+    IndicatorPage:
+      type: object
+      description: A cursor-paginated page of indicator catalogue entries.
+      required: [items, pageInfo]
+      properties:
+        '@context': { $ref: '#/components/schemas/JsonLdContext' }
+        items:
+          type: array
+          description: The indicator catalogue entries of this page.
+          items: { $ref: '#/components/schemas/IndicatorEntry' }
+        pageInfo: { $ref: '#/components/schemas/PageInfo' }
+      examples:
+        - items:
+            - indicatorId: ur
+              title: Unemployment rate
+              unit: '%'
+              latestDefinitionVersion: '2'
+          pageInfo:
+            nextCursor: null
+
+    DefinitionVersionCreate:
+      type: object
+      description: >-
+        A definition version of an indicator. A change of formula, unit, scope
+        or dimensions requires a new definition version.
+      required: [definitionVersion, unit, calculation]
+      properties:
+        definitionVersion:
+          type: string
+          minLength: 1
+          description: Version of the definition, chosen by the author; unique per indicator.
+        unit:
+          type: string
+          description: UCUM code, e.g. %.
+        frequency:
+          type: string
+          description: Optional code from SDMX CL_FREQ; derived from the time format if omitted.
+        geoDimension:
+          type: string
+          description: Optional; the dimension that is geographic (JSON-stat role geo).
+        codelists:
+          type: object
+          description: >-
+            Optional reference to a shared code list per dimension. By default
+            the code lists come from the Table Schemas of the input datasets.
+          additionalProperties:
+            type: string
+            format: uri-reference
+            description: Path of the shared code list for this dimension.
+        calculation:
+          type: object
+          description: The calculation rule.
+          required: [language, expression]
+          properties:
+            language:
+              type: string
+              description: vtl-2.1, ossie-<version> or a custom language with prefix x-.
+            expression:
+              type: string
+              description: The calculation expression in that language.
+        dimensions:
+          type: array
+          description: Only needed if the language does not define the breakdown (e.g. Ossie).
+          items:
+            type: string
+            description: Identifier of a dimension.
+      examples:
+        - definitionVersion: '2'
+          unit: '%'
+          frequency: A
+          geoDimension: region
+          calculation:
+            language: vtl-2.1
+            expression: 'ur := labour_market_regional [calc value := unemployed / labour_force * 100];'
+
+    DefinitionVersion:
+      description: A published, immutable definition version of an indicator.
+      allOf:
+        - $ref: '#/components/schemas/DefinitionVersionCreate'
+        - type: object
+          description: Attributes set by the building block on publication.
+          required: [indicatorId, status, publishedAt]
+          properties:
+            indicatorId: { $ref: '#/components/schemas/IndicatorId' }
+            status:
+              type: string
+              description: PUBLISHED once the version is published.
+              enum: [PUBLISHED]
+              x-extensible-enum: true
+            publishedAt:
+              type: string
+              format: date-time
+              description: Time of publication.
+            inputDatasets:
+              type: array
+              description: Datasets derived from the calculation.
+              items: { $ref: '#/components/schemas/DatasetId' }
+      examples:
+        - indicatorId: ur
+          definitionVersion: '2'
+          unit: '%'
+          frequency: A
+          calculation:
+            language: vtl-2.1
+            expression: 'ur := labour_market_regional [calc value := unemployed / labour_force * 100];'
+          status: PUBLISHED
+          publishedAt: '2026-10-29T12:00:00Z'
+          inputDatasets: [labour_market_regional]
+          dimensions: [region, timePeriod]
+
+    CalculationRequest:
+      type: object
+      description: Request to calculate a definition version.
+      required: [definitionVersion]
+      additionalProperties: false
+      properties:
+        definitionVersion:
+          type: string
+          minLength: 1
+          description: The published definition version to calculate.
+      examples:
+        - definitionVersion: '2'
+
+    Calculation:
+      type: object
+      description: >-
+        Operation resource of a calculation. PENDING and RUNNING are
+        non-terminal; SUCCEEDED and FAILED are terminal. `finishedAt` is present
+        in terminal states, `error` only when FAILED. The identifier is also the
+        result version and the identifier of the provenance record.
+      required: [calculationId, indicatorId, definitionVersion, status, createdAt]
+      properties:
+        calculationId:
+          type: string
+          description: Identifier of the calculation, the result version and the provenance record.
+        indicatorId: { $ref: '#/components/schemas/IndicatorId' }
+        definitionVersion:
+          type: string
+          description: The definition version being calculated.
+        status:
+          type: string
+          description: PENDING, RUNNING, SUCCEEDED or FAILED.
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED]
+          x-extensible-enum: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Time the calculation was accepted.
+        finishedAt:
+          type: string
+          format: date-time
+          description: Time the calculation reached a terminal status.
+        valuesHref:
+          type: string
+          format: uri-reference
+          description: Path of the values of this result version; only when SUCCEEDED.
+        lineageHref:
+          type: string
+          format: uri-reference
+          description: Path of the provenance record; only when SUCCEEDED.
+        error:
+          description: Problem Details of the failure; only when FAILED.
+          $ref: '#/components/schemas/Problem'
+      examples:
+        - calculationId: c-501
+          indicatorId: ur
+          definitionVersion: '2'
+          status: SUCCEEDED
+          createdAt: '2026-10-29T12:05:00Z'
+          finishedAt: '2026-10-29T12:05:41Z'
+          valuesHref: /v1/indicators/ur/values?resultVersion=c-501
+          lineageHref: /v1/lineage/c-501
+
+    Download:
+      type: object
+      description: >-
+        Operation resource of an asynchronous download. PREPARING is
+        non-terminal; READY and FAILED are terminal. `contentHref` and
+        `expiresAt` are present only when READY, `error` only when FAILED.
+      required: [downloadId, status, createdAt]
+      properties:
+        downloadId:
+          type: string
+          description: Opaque identifier of the download.
+        status:
+          type: string
+          description: PREPARING, READY or FAILED.
+          enum: [PREPARING, READY, FAILED]
+          x-extensible-enum: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Time the download was requested.
+        contentHref:
+          type: string
+          format: uri-reference
+          description: Path of the prepared file; only when READY.
+        mediaType:
+          type: string
+          description: Media type of the prepared file, application/json or text/csv.
+        sizeBytes:
+          type: integer
+          minimum: 0
+          description: Size of the prepared file.
+        expiresAt:
+          type: string
+          format: date-time
+          description: Time after which the file is no longer kept.
+        error:
+          description: Problem Details of the failure; only when FAILED.
+          $ref: '#/components/schemas/Problem'
+      examples:
+        - downloadId: d-9a1b
+          status: READY
+          createdAt: '2026-10-30T09:00:00Z'
+          contentHref: /v1/downloads/d-9a1b/content
+          mediaType: text/csv
+          sizeBytes: 52428800
+          expiresAt: '2026-10-31T09:00:00Z'
+
+    ProvActivity:
+      type: object
+      description: >-
+        Provenance record per W3C PROV-O, serialised as JSON-LD 1.1. Property
+        names are the compact IRIs of the external vocabularies.
+      required: ['@id', '@type', 'prov:used', 'prov:generated']
+      properties:
+        '@context':
+          description: JSON-LD context with the prov and dct prefixes.
+        '@id':
+          type: string
+          description: 'urn:analytics:calculation:<calculationId>'
+        '@type':
+          const: 'prov:Activity'
+          description: The record describes a PROV activity.
+        'prov:used':
+          type: array
+          description: Input dataset versions.
+          items:
+            type: object
+            description: An input dataset version.
+            required: ['@id', checksum]
+            properties:
+              '@id':
+                type: string
+                description: 'Dataset version, <datasetId>:<version>.'
+              checksum:
+                type: string
+                description: 'SHA-256 checksum, sha256:<hex>.'
+              'prov:wasAttributedTo':
+                type: string
+                description: Supplying system.
+              'dct:issued':
+                type: string
+                format: date-time
+                description: Time of receipt.
+        'prov:qualifiedAssociation':
+          type: object
+          description: The plan the activity followed.
+          properties:
+            'prov:hadPlan':
+              type: object
+              description: The definition version used as plan.
+              properties:
+                '@id':
+                  type: string
+                  description: 'Definition version, <indicatorId>:<definitionVersion>.'
+        'prov:generated':
+          type: object
+          description: The result version generated.
+          properties:
+            '@id':
+              type: string
+              description: 'urn:analytics:resultVersion:<calculationId>'
+        'prov:endedAtTime':
+          type: string
+          format: date-time
+          description: Time the calculation finished.
+      examples:
+        - '@context': https://govstack.global/analytics/context/v1.jsonld
+          '@id': urn:analytics:calculation:c-501
+          '@type': prov:Activity
+          prov:used:
+            - '@id': labour_market_regional:1
+              checksum: sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
+              prov:wasAttributedTo: employment-register
+              dct:issued: '2026-10-28T09:12:00Z'
+          prov:qualifiedAssociation:
+            prov:hadPlan:
+              '@id': ur:2
+          prov:generated:
+            '@id': urn:analytics:resultVersion:c-501
+          prov:endedAtTime: '2026-10-29T12:05:41Z'
+
+    JsonStatDimension:
+      type: object
+      description: JSON-stat 2.0 response of class dimension; field names are those of the external standard.
+      required: [version, class, category]
+      properties:
+        version:
+          const: '2.0'
+          description: JSON-stat version.
+        class:
+          const: dimension
+          description: JSON-stat class.
+        href:
+          type: string
+          format: uri
+          description: Address of this code list.
+        label:
+          type: string
+          description: Label of the dimension.
+        category:
+          type: object
+          description: The codes and their labels.
+          properties:
+            index:
+              type: array
+              description: Codes in their order.
+              items:
+                type: string
+                description: A code.
+            label:
+              type: object
+              description: Label per code.
+              additionalProperties:
+                type: string
+                description: Label of the code.
+      examples:
+        - version: '2.0'
+          class: dimension
+          label: region
+          category:
+            index: [R01, R02]
+            label:
+              R01: North
+              R02: South
+
+    JsonStatDataset:
+      type: object
+      description: >-
+        JSON-stat 2.0 response of class dataset; field names are those of the
+        external standard. Observation status and unit multiplier come from the
+        SDMX code lists CL_OBS_STATUS and CL_UNIT_MULT; time periods use the
+        SDMX time format.
+      required: [version, class, id, size, dimension, value, extension]
+      properties:
+        version:
+          const: '2.0'
+          description: JSON-stat version.
+        class:
+          const: dataset
+          description: JSON-stat class.
+        label:
+          type: string
+          description: Label of the indicator.
+        id:
+          type: array
+          description: Dimension identifiers in their order.
+          items:
+            type: string
+            description: A dimension identifier.
+        size:
+          type: array
+          description: Number of categories per dimension.
+          items:
+            type: integer
+            description: Number of categories of a dimension.
+        role:
+          type: object
+          description: JSON-stat roles, e.g. time and geo.
+        updated:
+          type: string
+          format: date-time
+          description: Time the result version was produced.
+        dimension:
+          type: object
+          description: Dimensions with their categories.
+        value:
+          type: array
+          description: Values in row-major order; null for missing values.
+          items:
+            type: [number, 'null']
+            description: A value.
+        status:
+          description: >-
+            Observation status from SDMX CL_OBS_STATUS: a single code for all
+            values, an array with one code per value, or an object by position.
+            A value without an entry has the status A (normal value).
+          oneOf:
+            - type: string
+              description: One status for all values.
+            - type: array
+              description: One status per value.
+              items:
+                type: [string, 'null']
+                description: Status of a value.
+            - type: object
+              description: Status by position.
+              additionalProperties:
+                type: string
+                description: Status of the value at this position.
+        extension:
+          type: object
+          description: Values JSON-stat does not provide for, defined by this specification.
+          required: [indicatorId, definitionVersion, resultVersion, unit]
+          properties:
+            indicatorId: { $ref: '#/components/schemas/IndicatorId' }
+            definitionVersion:
+              type: string
+              description: Definition version the values were calculated with.
+            resultVersion:
+              type: string
+              description: Result version (calculation identifier) of the values.
+            unit:
+              type: string
+              description: UCUM unit of the values.
+            unitMultiplier:
+              type: integer
+              description: Code from SDMX CL_UNIT_MULT, the power of ten applied to the values.
+            basedOnWithdrawn:
+              type: boolean
+              description: True if the result version is based on a withdrawn dataset version.
+      examples:
+        - version: '2.0'
+          class: dataset
+          label: Unemployment rate
+          id: [region, timePeriod]
+          size: [1, 1]
+          role:
+            geo: [region]
+            time: [timePeriod]
+          updated: '2026-10-29T12:05:41Z'
+          dimension:
+            region:
+              category:
+                index: [R01]
+                label:
+                  R01: North
+            timePeriod:
+              category:
+                index: ['2024']
+          value: [4.2]
+          extension:
+            indicatorId: ur
+            definitionVersion: '2'
+            resultVersion: c-501
+            unit: '%'
+            basedOnWithdrawn: false
+
+    SubscriptionCreate:
+      type: object
+      description: Attributes of a new subscription; names follow the CloudEvents Subscriptions API.
+      required: [types, sink, protocol]
+      properties:
+        types:
+          type: array
+          minItems: 1
+          description: Event types to subscribe to.
+          items:
+            type: string
+            description: A full event type, e.g. global.govstack.analytics.indicator.values.published.
+        sink:
+          type: string
+          format: uri
+          pattern: '^https://'
+          description: HTTPS endpoint the events are delivered to.
+        protocol:
+          type: string
+          const: HTTP
+          description: Delivery protocol; only HTTP is defined.
+      examples:
+        - types: [global.govstack.analytics.indicator.values.published]
+          sink: https://portal.example.org/hooks/analytics
+          protocol: HTTP
+
+    Subscription:
+      description: A subscription of the caller.
+      allOf:
+        - $ref: '#/components/schemas/SubscriptionCreate'
+        - type: object
+          description: Attributes set by the building block.
+          required: [id, createdAt]
+          properties:
+            id:
+              type: string
+              description: Identifier of the subscription, assigned by the building block.
+            createdAt:
+              type: string
+              format: date-time
+              description: Time the subscription was created.
+      examples:
+        - id: s-42
+          types: [global.govstack.analytics.indicator.values.published]
+          sink: https://portal.example.org/hooks/analytics
+          protocol: HTTP
+          createdAt: '2026-10-20T07:30:00Z'
+
+    SubscriptionPage:
+      type: object
+      description: A cursor-paginated page of subscriptions.
+      required: [items, pageInfo]
+      properties:
+        items:
+          type: array
+          description: The subscriptions of this page.
+          items: { $ref: '#/components/schemas/Subscription' }
+        pageInfo: { $ref: '#/components/schemas/PageInfo' }
+      examples:
+        - items:
+            - id: s-42
+              types: [global.govstack.analytics.indicator.values.published]
+              sink: https://portal.example.org/hooks/analytics
+              protocol: HTTP
+              createdAt: '2026-10-20T07:30:00Z'
+          pageInfo:
+            nextCursor: null
+
+    CloudEvent:
+      type: object
+      description: >-
+        CloudEvents 1.0 envelope in structured JSON mode. `source` is the base
+        address of the installation; `subject` is the path of the affected
+        resource as listed in the event catalogue, e.g. datasets/{datasetId}.
+        `data` contains only identifiers and version information.
+      required: [specversion, id, source, type, time, subject, datacontenttype, data]
+      properties:
+        specversion:
+          type: string
+          const: '1.0'
+          description: CloudEvents specification version.
+        id:
+          type: string
+          minLength: 1
+          description: Identifier of the event, unique per source.
+        source:
+          type: string
+          format: uri-reference
+          description: Base address of the installation that produced the event; a stable absolute URI.
+          examples: ['https://api.example.org/analytics/']
+        type:
+          type: string
+          description: Event type, global.govstack.analytics.{resource}.{action}.
+        time:
+          type: string
+          format: date-time
+          description: Time the event occurred.
+        subject:
+          type: string
+          description: Path of the affected resource.
+        datacontenttype:
+          type: string
+          const: application/json
+          description: Media type of data.
+        data:
+          type: object
+          description: Event-specific payload.
+
+    DatasetVersionPublishedEvent:
+      description: Event dataset.version.published.
+      allOf:
+        - $ref: '#/components/schemas/CloudEvent'
+        - type: object
+          description: Type and payload of this event.
+          properties:
+            type:
+              const: global.govstack.analytics.dataset.version.published
+              description: Event type.
+            data:
+              type: object
+              description: The new dataset version.
+              required: [datasetId, version, schemaVersion, checksum]
+              properties:
+                datasetId: { $ref: '#/components/schemas/DatasetId' }
+                version:
+                  type: integer
+                  description: Number of the new version.
+                schemaVersion:
+                  type: integer
+                  description: Schema version of the new version.
+                checksum:
+                  type: string
+                  description: SHA-256 checksum of the content.
+      examples:
+        - specversion: '1.0'
+          id: 0b8c1d2e-3f4a-5b6c-7d8e-9f0a1b2c3d4e
+          source: https://api.example.org/analytics/
+          type: global.govstack.analytics.dataset.version.published
+          time: '2026-10-28T09:12:05Z'
+          subject: datasets/labour_market_regional
+          datacontenttype: application/json
+          data:
+            datasetId: labour_market_regional
+            version: 1
+            schemaVersion: 1
+            checksum: sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809
+
+    DatasetVersionWithdrawnEvent:
+      description: Event dataset.version.withdrawn.
+      allOf:
+        - $ref: '#/components/schemas/CloudEvent'
+        - type: object
+          description: Type and payload of this event.
+          properties:
+            type:
+              const: global.govstack.analytics.dataset.version.withdrawn
+              description: Event type.
+            data:
+              type: object
+              description: The withdrawn dataset version.
+              required: [datasetId, version, reason]
+              properties:
+                datasetId: { $ref: '#/components/schemas/DatasetId' }
+                version:
+                  type: integer
+                  description: Number of the withdrawn version.
+                reason:
+                  type: string
+                  description: Reason stated by the data steward.
+      examples:
+        - specversion: '1.0'
+          id: 1c9d2e3f-4a5b-6c7d-8e9f-0a1b2c3d4e5f
+          source: https://api.example.org/analytics/
+          type: global.govstack.analytics.dataset.version.withdrawn
+          time: '2026-10-30T10:15:00Z'
+          subject: datasets/labour_market_regional
+          datacontenttype: application/json
+          data:
+            datasetId: labour_market_regional
+            version: 3
+            reason: Test data delivered by mistake.
+
+    IndicatorDefinitionPublishedEvent:
+      description: Event indicator.definition.published.
+      allOf:
+        - $ref: '#/components/schemas/CloudEvent'
+        - type: object
+          description: Type and payload of this event.
+          properties:
+            type:
+              const: global.govstack.analytics.indicator.definition.published
+              description: Event type.
+            data:
+              type: object
+              description: The published definition version.
+              required: [indicatorId, definitionVersion]
+              properties:
+                indicatorId: { $ref: '#/components/schemas/IndicatorId' }
+                definitionVersion:
+                  type: string
+                  description: The published definition version.
+      examples:
+        - specversion: '1.0'
+          id: 2d0e3f4a-5b6c-7d8e-9f0a-1b2c3d4e5f60
+          source: https://api.example.org/analytics/
+          type: global.govstack.analytics.indicator.definition.published
+          time: '2026-10-29T12:00:00Z'
+          subject: indicators/ur
+          datacontenttype: application/json
+          data:
+            indicatorId: ur
+            definitionVersion: '2'
+
+    IndicatorValuesPublishedEvent:
+      description: Event indicator.values.published.
+      allOf:
+        - $ref: '#/components/schemas/CloudEvent'
+        - type: object
+          description: Type and payload of this event.
+          properties:
+            type:
+              const: global.govstack.analytics.indicator.values.published
+              description: Event type.
+            data:
+              type: object
+              description: The new result version.
+              required: [indicatorId, definitionVersion, resultVersion]
+              properties:
+                indicatorId: { $ref: '#/components/schemas/IndicatorId' }
+                definitionVersion:
+                  type: string
+                  description: Definition version the values were calculated with.
+                resultVersion:
+                  type: string
+                  description: The new result version (calculation identifier).
+      examples:
+        - specversion: '1.0'
+          id: 3e1f4a5b-6c7d-8e9f-0a1b-2c3d4e5f6071
+          source: https://api.example.org/analytics/
+          type: global.govstack.analytics.indicator.values.published
+          time: '2026-10-29T12:05:41Z'
+          subject: indicators/ur
+          datacontenttype: application/json
+          data:
+            indicatorId: ur
+            definitionVersion: '2'
+            resultVersion: c-501
+
+    IndicatorCalculationFailedEvent:
+      description: Event indicator.calculation.failed.
+      allOf:
+        - $ref: '#/components/schemas/CloudEvent'
+        - type: object
+          description: Type and payload of this event.
+          properties:
+            type:
+              const: global.govstack.analytics.indicator.calculation.failed
+              description: Event type.
+            data:
+              type: object
+              description: The failed calculation.
+              required: [indicatorId, definitionVersion, calculationId]
+              properties:
+                indicatorId: { $ref: '#/components/schemas/IndicatorId' }
+                definitionVersion:
+                  type: string
+                  description: Definition version that was calculated.
+                calculationId:
+                  type: string
+                  description: Identifier of the failed calculation.
+      examples:
+        - specversion: '1.0'
+          id: 4f2a5b6c-7d8e-9f0a-1b2c-3d4e5f607182
+          source: https://api.example.org/analytics/
+          type: global.govstack.analytics.indicator.calculation.failed
+          time: '2026-10-29T13:00:10Z'
+          subject: indicators/ur
+          datacontenttype: application/json
+          data:
+            indicatorId: ur
+            definitionVersion: '2'
+            calculationId: c-502
+
+    DeliveryCheckedEvent:
+      description: Event delivery.checked; data is the receipt in a terminal status.
+      allOf:
+        - $ref: '#/components/schemas/CloudEvent'
+        - type: object
+          description: Type and payload of this event.
+          properties:
+            type:
+              const: global.govstack.analytics.delivery.checked
+              description: Event type.
+            data: { $ref: '#/components/schemas/Receipt' }
+      examples:
+        - specversion: '1.0'
+          id: 5a3b6c7d-8e9f-0a1b-2c3d-4e5f60718293
+          source: https://api.example.org/analytics/
+          type: global.govstack.analytics.delivery.checked
+          time: '2026-10-28T09:12:04Z'
+          subject: receipts/r-1c2d
+          datacontenttype: application/json
+          data:
+            receiptId: r-1c2d
+            datasetId: labour_market_regional
+            status: ACCEPTED
+            version: 1
+            receivedAt: '2026-10-28T09:12:00Z'
+            checkedAt: '2026-10-28T09:12:04Z'
+            href: /v1/datasets/labour_market_regional/versions/1
+
+    DatasetVersionContentRemovedEvent:
+      description: Event dataset.version.contentRemoved.
+      allOf:
+        - $ref: '#/components/schemas/CloudEvent'
+        - type: object
+          description: Type and payload of this event.
+          properties:
+            type:
+              const: global.govstack.analytics.dataset.version.contentRemoved
+              description: Event type.
+            data:
+              type: object
+              description: The dataset version whose content was deleted.
+              required: [datasetId, version]
+              properties:
+                datasetId: { $ref: '#/components/schemas/DatasetId' }
+                version:
+                  type: integer
+                  description: Number of the version.
+      examples:
+        - specversion: '1.0'
+          id: 6b4c7d8e-9f0a-1b2c-3d4e-5f6071829304
+          source: https://api.example.org/analytics/
+          type: global.govstack.analytics.dataset.version.contentRemoved
+          time: '2026-11-01T02:00:00Z'
+          subject: datasets/labour_market_regional
+          datacontenttype: application/json
+          data:
+            datasetId: labour_market_regional
+            version: 1

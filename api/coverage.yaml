@@ -1,0 +1,10 @@
+# Functional-requirement traceability (GovStack API Design Guide, rule 4.6).
+#
+# `requirements` must list exactly the active REQUIRED and RECOMMENDED
+# requirements of the specification. All requirements of the Analytics
+# Building Block are still DRAFT, so the list is empty. The mapping of each
+# draft requirement to its operation is kept in the `api_operation_id` field
+# of the requirement in spec/requirements/*.md; entries move here, with their
+# `govstack-...#req-<number>` identifiers, once the requirements are promoted.
+version: 1
+requirements: []
