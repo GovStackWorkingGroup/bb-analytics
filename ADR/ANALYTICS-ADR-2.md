@@ -44,7 +44,7 @@ This draft recommends **Option 1**. DCAT 3 is the first version of DCAT that mod
 
 ### Consequences
 
-* The reading catalogue endpoints (`GET /catalogue`, `GET /datasets/{id}`, `GET /datasets/{id}/versions`) carry an `@context` that refers to a context document of this specification
+* The reading catalogue endpoints (`GET /v1/catalogue`, `GET /v1/datasets`, `GET /v1/datasets/{id}`, `GET /v1/datasets/{id}/versions`, `GET /v1/indicators`) carry an `@context` that refers to a context document of this specification
 * The context maps fields to DCAT 3, DCTERMS and PROV-O terms (see the mapping table in `spec/requirements/data-catalogue.md`); fields without a counterpart, such as `indicators`, `origin` or `checksum`, get terms in a namespace of this specification
 * Dataset and dataset version are named after DCAT 3 properties in the base model (see `spec/7-data-structures.md`)
 * Requests remain plain JSON without a context
@@ -53,7 +53,9 @@ This draft recommends **Option 1**. DCAT 3 is the first version of DCAT that mod
 
 ### Confirmation
 
-Confirmed by the Analytics Working Group. The outcome is implemented in the Data Catalogue requirements, in the base model of section 7 and in the `@context` of the catalogue schemas in `api/swagger.yaml`.
+Confirmed by the Analytics Working Group. The outcome is implemented in the Data Catalogue requirements, in the base model of section 7 and in the `@context` of the catalogue schemas in `api/openapi.yaml`.
+
+Amended on 2026-11-03: the API definition was aligned with the [GovStack Cross-BB API Design Guide](https://github.com/jeremi/govstack-api-design-guide) 0.3.0-draft. Paths now carry the major version (`/v1/...`), field names are camelCase, and datasets and indicators are listed through the paginated collections `GET /v1/datasets` and `GET /v1/indicators`, which carry the `@context` as well. The decision for DCAT 3 through a JSON-LD context is unchanged.
 
 ## Pros and Cons of the Options
 

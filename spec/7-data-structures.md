@@ -12,50 +12,50 @@ The complete definitions, including request and response formats, are part of th
 classDiagram
     direction LR
     class Dataset {
-      dataset_id
+      datasetId
       title
       publisher
       origin
-      processing_stage
+      processingStage
     }
     class Schema {
-      schema_version
+      schemaVersion
       fields
       primaryKey
     }
     class DatasetVersion {
-      dataset_id
+      datasetId
       version
-      schema_version
-      received_at
+      schemaVersion
+      receivedAt
       checksum
-      supplied_by
+      suppliedBy
       status
     }
     class IndicatorDefinition {
-      indicator_id
-      definition_version
+      indicatorId
+      definitionVersion
       title
       unit
       dimensions
-      input_datasets
+      inputDatasets
       calculation
     }
     class IndicatorValue {
-      indicator_id
-      definition_version
-      result_version
+      indicatorId
+      definitionVersion
+      resultVersion
       dimension codes
-      time_period
+      timePeriod
       value
-      observation_status
+      observationStatus
     }
     class ProvenanceRecord {
-      calculation_id
+      calculationId
       generated
       used
       plan
-      ended_at
+      endedAtTime
     }
     class Subscription {
       id
@@ -89,14 +89,14 @@ Identifiers are case-sensitive strings. Points in time follow RFC 3339 in UTC. C
 
 | Name | Type | Required | Description | Standard |
 | ---- | ---- | -------- | ----------- | -------- |
-| `dataset_id` | string | Y | Identifier of the dataset, lower case letters, digits and `_` | `dct:identifier` |
+| `datasetId` | string | Y | Identifier of the dataset, lower case letters, digits and `_` | `dct:identifier` |
 | `title` | string | Y | Title of the dataset | `dct:title` |
 | `publisher` | string | N | Organisation that publishes the dataset | `dct:publisher` |
-| `schema` | reference | N | Reference to the current schema and its `schema_version`; present once a schema is registered | `dct:conformsTo` |
+| `schema` | reference | N | Reference to the current schema and its `schemaVersion`; present once a schema is registered | `dct:conformsTo` |
 | `origin` | enum | Y | `ORIGINAL` or `DERIVED`; set by the building block, not stated when the dataset is created | |
-| `processing_stage` | string | N | Processing stage from a code list defined by the installation | |
-| `latest_version` | reference | N | Latest valid dataset version | `dcat:hasCurrentVersion` |
-| `versions` | reference | Y | Reference to all versions | `dcat:hasVersion` |
+| `processingStage` | string | N | Processing stage from a code list defined by the installation | |
+| `latestVersion` | reference | N | Latest valid dataset version | `dcat:hasCurrentVersion` |
+| `versionsHref` | reference | Y | Reference to the paginated collection of all versions | `dcat:hasVersion` |
 | `indicators` | array of references | N | Indicators that use this dataset | |
 
 ### 7.2.2 Dataset Version
@@ -107,21 +107,21 @@ Identifiers are case-sensitive strings. Points in time follow RFC 3339 in UTC. C
 
 | Name | Type | Required | Description | Standard |
 | ---- | ---- | -------- | ----------- | -------- |
-| `dataset_id` | string | Y | Identifier of the dataset | |
-| `version` | integer | Y | Consecutive number per dataset, starting at 1; where a single identifier is needed it is written `<dataset_id>:<version>` | `dcat:version` |
-| `schema_version` | integer | Y | Version of the schema the delivery was validated against | `dct:conformsTo` |
-| `receipt_id` | string | Y | Identifier of the receipt of the delivery | |
-| `supplied_by` | string | Y | Supplying system | `prov:wasAttributedTo` |
-| `received_at` | date-time | Y | Time of receipt | `dct:issued` |
+| `datasetId` | string | Y | Identifier of the dataset | |
+| `version` | integer | Y | Consecutive number per dataset, starting at 1; where a single identifier is needed it is written `<datasetId>:<version>` | `dcat:version` |
+| `schemaVersion` | integer | Y | Version of the schema the delivery was validated against | `dct:conformsTo` |
+| `receiptId` | string | Y | Identifier of the receipt of the delivery | |
+| `suppliedBy` | string | Y | Supplying system | `prov:wasAttributedTo` |
+| `receivedAt` | date-time | Y | Time of receipt | `dct:issued` |
 | `checksum` | string | Y | SHA-256 checksum of the content, written `sha256:<hex>` | |
-| `status` | enum | Y | `valid` or `withdrawn` | |
-| `reason` | string | N | Reason for the withdrawal; required if `status` is `withdrawn` | |
-| `content_available` | boolean | N | `false` if the content was withdrawn or removed under an operational rule | |
-| `withdrawn_at` | date-time | N | Time of the withdrawal | |
+| `status` | enum | Y | `VALID` or `WITHDRAWN` | |
+| `withdrawalReason` | string | N | Reason for the withdrawal; required if `status` is `WITHDRAWN` | |
+| `contentAvailable` | boolean | N | `false` if the content was withdrawn or removed under an operational rule | |
+| `withdrawnAt` | date-time | N | Time of the withdrawal | |
 
 ### 7.2.3 Schema
 
-**Description:** The description of the fields of a dataset as a Table Schema according to Data Package Standard 2.0, against which every delivery is validated. Every change creates a new schema version. The schema version is assigned by the building block and is not part of the Table Schema document; it identifies the schema in the path (`/datasets/{id}/schema/{schema_version}`), in the dataset (`schema.schema_version`) and in every dataset version.
+**Description:** The description of the fields of a dataset as a Table Schema according to Data Package Standard 2.0, against which every delivery is validated. Every change creates a new schema version. The schema version is assigned by the building block and is not part of the Table Schema document; it identifies the schema in the path (`/v1/datasets/{datasetId}/schema/{schemaVersion}`), in the dataset (`schema.schemaVersion`) and in every dataset version.
 
 **Fields:**
 
@@ -132,7 +132,7 @@ Identifiers are case-sensitive strings. Points in time follow RFC 3339 in UTC. C
 | `fields[].name` | string | Y | Name of the field | Table Schema `name` |
 | `fields[].type` | string | Y | Type of the field, e.g. `string`, `integer`, `year` | Table Schema `type` |
 | `fields[].role` | enum | N | `identifier`, `time`, `measure` or `attribute`; derived by convention if missing | defined by this specification |
-| `fields[].categories` | array | N | Permitted codes, as strings or as objects with `value` and `label`; source of the code list `<dataset_id>.<field>` | Table Schema `categories` |
+| `fields[].categories` | array | N | Permitted codes, as strings or as objects with `value` and `label`; source of the code list `<datasetId>.<field>` | Table Schema `categories` |
 | `primaryKey` | array of strings | N | Key fields; used to derive field roles | Table Schema `primaryKey` |
 
 {% hint style="warning" %}
@@ -147,18 +147,18 @@ Identifiers are case-sensitive strings. Points in time follow RFC 3339 in UTC. C
 
 | Name | Type | Required | Description | Standard |
 | ---- | ---- | -------- | ----------- | -------- |
-| `indicator_id` | string | Y | Identifier of the indicator | SDMX Dataflow ID |
-| `definition_version` | string | Y | Version of the definition; immutable once published | SDMX `version` |
+| `indicatorId` | string | Y | Identifier of the indicator | SDMX Dataflow ID |
+| `definitionVersion` | string | Y | Version of the definition; immutable once published | SDMX `version` |
 | `title` | string | Y | Title of the indicator | SDMX `name` |
 | `unit` | string | Y | Unit of measure as a UCUM code, e.g. `%` | SDMX `UNIT_MEASURE` |
 | `dimensions` | array of strings | Y | Dimensions; determined from the calculation, or stated explicitly if the language does not define the breakdown. Code lists come from the schemas of the input data | SDMX dimensions of the DSD |
 | `frequency` | string | N | Frequency from `CL_FREQ`; otherwise derived from the time format | SDMX `FREQ` |
-| `geo_dimension` | string | N | The dimension that is geographic; output as JSON-stat role `geo` | |
+| `geoDimension` | string | N | The dimension that is geographic; output as JSON-stat role `geo` | |
 | `codelists` | map | N | Reference to a shared code list per dimension, instead of the code list from the schema of the input data | |
-| `input_datasets` | array of strings | Y | Input datasets; determined by the building block from the calculation | |
+| `inputDatasets` | array of strings | Y | Input datasets; determined by the building block from the calculation | |
 | `calculation.language` | string | Y | Calculation language, e.g. `vtl-2.1`, `ossie-<version>`, or `x-…` for implementation-defined languages | |
 | `calculation.expression` | string | Y | The calculation in that language | |
-| `status` | enum | Y | `published` | |
+| `status` | enum | Y | `PUBLISHED` | |
 
 ### 7.2.5 Indicator Value
 
@@ -168,15 +168,15 @@ Identifiers are case-sensitive strings. Points in time follow RFC 3339 in UTC. C
 
 | Name | Type | Required | Description | Standard |
 | ---- | ---- | -------- | ----------- | -------- |
-| `indicator_id` | string | Y | Identifier of the indicator | SDMX Dataflow ID |
-| `definition_version` | string | Y | Definition version the value was calculated with | SDMX `version` |
-| `result_version` | string | Y | Result version the value belongs to; identical to the identifier of the calculation and the provenance record | |
+| `indicatorId` | string | Y | Identifier of the indicator | SDMX Dataflow ID |
+| `definitionVersion` | string | Y | Definition version the value was calculated with | SDMX `version` |
+| `resultVersion` | string | Y | Result version the value belongs to; identical to the identifier of the calculation and the provenance record | |
 | dimension codes | string per dimension | Y | Code of each dimension, e.g. region `R01` | SDMX dimensions, e.g. `REF_AREA` |
-| `time_period` | string | Y | Time period in the SDMX time format, e.g. `2024`, `2024-Q1`, `2024-03` | SDMX `TIME_PERIOD` |
+| `timePeriod` | string | Y | Time period in the SDMX time format, e.g. `2024`, `2024-Q1`, `2024-03` | SDMX `TIME_PERIOD` |
 | `value` | number | N | The value; missing values are `null` or empty | SDMX `OBS_VALUE` |
-| `observation_status` | string | Y | Code from `CL_OBS_STATUS`, e.g. `A` (normal), `P` (provisional). In JSON-stat, a value without a status entry has the status `A`; in CSV it is stated in every row | SDMX `OBS_STATUS` |
-| `unit_multiplier` | string | N | Code from `CL_UNIT_MULT` | SDMX `UNIT_MULT` |
-| `based_on_withdrawn` | boolean | N | `true` if the result version is based on a withdrawn dataset version | |
+| `observationStatus` | string | Y | Code from `CL_OBS_STATUS`, e.g. `A` (normal), `P` (provisional). In JSON-stat, a value without a status entry has the status `A`; in CSV it is stated in every row | SDMX `OBS_STATUS` |
+| `unitMultiplier` | string | N | Code from `CL_UNIT_MULT` | SDMX `UNIT_MULT` |
+| `basedOnWithdrawn` | boolean | N | `true` if the result version is based on a withdrawn dataset version | |
 
 The provenance of a value is given through its result version.
 
@@ -188,9 +188,9 @@ The provenance of a value is given through its result version.
 
 | Name | Type | Required | Description | Standard |
 | ---- | ---- | -------- | ----------- | -------- |
-| `@id` | string | Y | Identifier of the calculation, `urn:analytics:calculation:<calculation_id>`; also identifies the result version | `prov:Activity` |
+| `@id` | string | Y | Identifier of the calculation, `urn:analytics:calculation:<calculationId>`; also identifies the result version | `prov:Activity` |
 | `prov:generated` | reference | Y | The result version or derived dataset version produced | `prov:generated` |
-| `prov:used` | array | Y | Input dataset versions: identifier `<dataset_id>:<version>`, checksum (`checksum`), supplying system (`prov:wasAttributedTo`) and time of receipt (`dct:issued`) | `prov:used` |
+| `prov:used` | array | Y | Input dataset versions: identifier `<datasetId>:<version>`, checksum (`checksum`), supplying system (`prov:wasAttributedTo`) and time of receipt (`dct:issued`) | `prov:used` |
 | `prov:hadPlan` | reference | N | Definition version; only for indicator values | `prov:hadPlan` (via `prov:qualifiedAssociation`) |
 | `prov:endedAtTime` | date-time | Y | Time the calculation finished | `prov:endedAtTime` |
 
@@ -203,7 +203,7 @@ The provenance of a value is given through its result version.
 | Name | Type | Required | Description | Standard |
 | ---- | ---- | -------- | ----------- | -------- |
 | `id` | string | Y | Identifier, assigned by the building block | CloudEvents Subscriptions `id` |
-| `types` | array of strings | Y | Event types, e.g. `org.govstack.analytics.indicator.values.published` | CloudEvents Subscriptions `types` |
+| `types` | array of strings | Y | Event types, e.g. `global.govstack.analytics.indicator.values.published` | CloudEvents Subscriptions `types` |
 | `sink` | URI | Y | Callback endpoint | CloudEvents Subscriptions `sink` |
 | `protocol` | string | Y | Always `HTTP` in the core | CloudEvents Subscriptions `protocol` |
 | subscribing system | – | Y | The authenticated caller that created the subscription; not part of the request | |
@@ -215,9 +215,10 @@ The interfaces use further structures that are not part of the base model:
 | Structure | Purpose | Defined in |
 | --------- | ------- | ---------- |
 | Data Package | Envelope of a delivery: `$schema`, `name`, `resources` with `path`, `format`, `encoding` and `dialect` | Data Package Standard 2.0; [Data Ingestion](requirements/data-ingestion.md) |
-| Receipt | Acknowledgement of a delivery: `receipt_id`, `dataset_id`, `status` (`validating`, `accepted`, `rejected`); if accepted `version`, `checksum`, `received_at`; if rejected the validation errors | [Data Ingestion](requirements/data-ingestion.md) |
-| Calculation | Status of a calculation: `calculation_id`, `indicator_id`, `definition_version`, `status` (`running`, `succeeded`, `failed`), `finished_at`, on failure `error` | [Indicator Calculation](requirements/indicator-calculation.md) |
-| Code list | Codes and labels of a field, identified as `<dataset_id>.<field>` with the schema version as version; delivered as a JSON-stat dimension | [Data Catalogue](requirements/data-catalogue.md) |
-| Catalogue | List of datasets and indicators with their versions, the executable calculation languages and, if offered, the size limit for asynchronous downloads | [Data Catalogue](requirements/data-catalogue.md) |
+| Receipt | Acknowledgement of a delivery and its operation resource: `receiptId`, `datasetId`, `status` (`VALIDATING`, `ACCEPTED`, `REJECTED`), `receivedAt`, `checkedAt`; if accepted `version` and `checksum`; if rejected the validation errors with `resource`, `row`, `field`, `rule` and `message` | [Data Ingestion](requirements/data-ingestion.md) |
+| Calculation | Status of a calculation and its operation resource: `calculationId`, `indicatorId`, `definitionVersion`, `status` (`PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`), `createdAt`, `finishedAt`, on failure `error` | [Indicator Calculation](requirements/indicator-calculation.md) |
+| Code list | Codes and labels of a field, identified as `<datasetId>.<field>` with the schema version as version; delivered as a JSON-stat dimension | [Data Catalogue](requirements/data-catalogue.md) |
+| Catalogue | Entry point with links to the paginated collections of datasets and indicators, the executable calculation languages and, if offered, the size limit for asynchronous downloads | [Data Catalogue](requirements/data-catalogue.md) |
 | Event | CloudEvents 1.0 message with `specversion`, `id`, `source`, `type`, `time`, `subject` and `data` | [Publication Events](requirements/publication-events.md) |
-| Problem | Error response according to RFC 9457, with individual validation errors (`row`, `field`, `detail`) | RFC 9457 |
+| Download | Operation resource of an asynchronous download: `downloadId`, `status` (`PREPARING`, `READY`, `FAILED`), `contentHref`, `expiresAt` | [Data Access](requirements/data-access.md) |
+| Problem | Error response according to RFC 9457 in the GovStack profile: `type` (`https://govstack.global/problems/analytics/<problem>`), `title`, `status`, `traceId`, optionally `detail` and, for invalid request fields, `errors` with `pointer` and `message` | RFC 9457; GovStack API Design Guide |

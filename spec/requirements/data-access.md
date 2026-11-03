@@ -29,7 +29,7 @@ requirements:
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block returns on GET /indicators/{indicator_id}/values without filters all values of the current result version that the caller is authorised to see.
+    statement: The Analytics Building Block returns on GET /v1/indicators/{indicatorId}/values without filters all values of the current result version that the caller is authorised to see.
     api_operation_id: getValues
   - status: DRAFT
     level: RECOMMENDED
@@ -85,7 +85,7 @@ requirements:
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block marks result versions that are based on a withdrawn dataset version with based_on_withdrawn in the values API.
+    statement: The Analytics Building Block marks result versions that are based on a withdrawn dataset version with basedOnWithdrawn in the values API.
     api_operation_id: getValues
   - status: DRAFT
     level: REQUIRED
@@ -103,7 +103,7 @@ requirements:
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block returns every provenance record on GET /lineage/{id} in the format W3C PROV-O as JSON-LD, also after underlying data has been deleted or withdrawn.
+    statement: The Analytics Building Block returns every provenance record on GET /v1/lineage/{calculationId} in the format W3C PROV-O as JSON-LD, also after underlying data has been deleted or withdrawn.
     api_operation_id: getLineage
   - status: DRAFT
     level: REQUIRED
@@ -141,7 +141,7 @@ requirements:
     observability: OBSERVABLE
     interaction: SERVICE_API
     statement: The Analytics Building Block states a SHA-256 checksum for every asynchronous download.
-    api_operation_id: getDownload
+    api_operation_id: getDownloadContent
   - status: DRAFT
     level: RECOMMENDED
     observability: OBSERVABLE
@@ -159,7 +159,7 @@ The **values API** is the core access to indicator values. It follows the princi
 | Level | Definition |
 | ----- | ---------- |
 | Format | JSON-stat 2.0, class `dataset` for indicator values; class `collection` for the list of indicators (recommended). |
-| Query | `GET /indicators/{indicator_id}/values` without filters returns all values of the current result version. Filters are recommended and follow the SDMX REST API v2: `c[<dimension>]=<codes>` per dimension, also for the time period, with the SDMX operators (for example `c[time_period]=ge:2023`). Further parameters: `format` (`jsonstat` as default or `csv`), `result_version` (the current one if not stated) and `updatedAfter` (only values changed since that point in time). Unknown or unsupported parameters are rejected with an error according to RFC 9457. |
+| Query | `GET /v1/indicators/{indicatorId}/values` without filters returns all values of the current result version. Filters are recommended and follow the SDMX REST API v2: `c[<dimension>]=<codes>` per dimension, also for the time period, with the SDMX operators (for example `c[timePeriod]=ge:2023`). Further parameters: `format` (`jsonstat` as default or `csv`), `resultVersion` (the current one if not stated) and `updatedAfter` (only values changed since that point in time). Unknown or unsupported parameters are rejected with an error according to RFC 9457. |
 | Mapping | Fixed rules for mapping indicator, dimensions, values and status to the JSON-stat structure (below). |
 | Vocabulary | Observation status and unit multiplier from the SDMX code lists `CL_OBS_STATUS` and `CL_UNIT_MULT`, frequency (if stated) from `CL_FREQ`; time periods in the SDMX time format; code lists of the dimensions from the schemas of the input data, versioned in the catalogue. |
 | CSV | CSV according to RFC 4180, UTF-8, comma as delimiter, point as decimal separator; one row per value with fixed columns (below). |
@@ -169,19 +169,19 @@ The **values API** is the core access to indicator values. It follows the princi
 | JSON-stat element | Content | Base model |
 | ----------------- | ------- | ---------- |
 | `label` | Title of the indicator | Indicator definition |
-| `id`, `size` | Dimensions in the order of the indicator definition, `time_period` last; number of codes per dimension | Dimensions of the indicator definition |
-| `role` | `time` for `time_period`; `geo` for the geographic dimension, if the indicator definition marks one | Indicator definition |
+| `id`, `size` | Dimensions in the order of the indicator definition, `timePeriod` last; number of codes per dimension | Dimensions of the indicator definition |
+| `role` | `time` for `timePeriod`; `geo` for the geographic dimension, if the indicator definition marks one | Indicator definition |
 | `dimension.{name}.category` | `index` with the codes, `label` with the labels from the code list | Code lists of the indicator definition |
 | `value` | Values in the order of the dimensions, missing values as `null` | Indicator value |
 | `status` | Observation status per value, codes from SDMX `CL_OBS_STATUS`, in any of the JSON-stat forms (single string, array or object by position). A value without an entry has the status `A` (normal value) | Observation status of the indicator value |
 | `updated` | Calculation time of the result version | Provenance record |
-| `extension` | `indicator_id`, `definition_version`, `result_version`, `unit`, `based_on_withdrawn` (if the result version is based on a withdrawn dataset version) | Indicator value, provenance record |
+| `extension` | `indicatorId`, `definitionVersion`, `resultVersion`, `unit`, `basedOnWithdrawn` (if the result version is based on a withdrawn dataset version) | Indicator value, provenance record |
 | `dimension.{name}.href` | Reference to the code list of the dimension as a JSON-stat dimension response (with version) | Code list in the catalogue |
 
 Example, for the unemployment rate by region:
 
 ```http
-GET /indicators/ur/values?format=jsonstat&c[region]=R01,R02&c[time_period]=2023,2024
+GET /v1/indicators/ur/values?format=jsonstat&c[region]=R01,R02&c[timePeriod]=2023,2024
 ```
 
 ```json
@@ -189,9 +189,9 @@ GET /indicators/ur/values?format=jsonstat&c[region]=R01,R02&c[time_period]=2023,
   "version": "2.0",
   "class": "dataset",
   "label": "Unemployment rate",
-  "id": ["region", "time_period"],
+  "id": ["region", "timePeriod"],
   "size": [2, 2],
-  "role": { "time": ["time_period"], "geo": ["region"] },
+  "role": { "time": ["timePeriod"], "geo": ["region"] },
   "updated": "2026-09-30T08:00:00Z",
   "dimension": {
     "region": {
@@ -201,7 +201,7 @@ GET /indicators/ur/values?format=jsonstat&c[region]=R01,R02&c[time_period]=2023,
         "label": { "R01": "North region", "R02": "South region" }
       }
     },
-    "time_period": {
+    "timePeriod": {
       "label": "Time period",
       "category": { "index": ["2023", "2024"] }
     }
@@ -209,9 +209,9 @@ GET /indicators/ur/values?format=jsonstat&c[region]=R01,R02&c[time_period]=2023,
   "value": [3.9, 4.2, 3.4, 3.7],
   "status": { "1": "P", "3": "P" },
   "extension": {
-    "indicator_id": "ur",
-    "definition_version": "2",
-    "result_version": "c-501",
+    "indicatorId": "ur",
+    "definitionVersion": "2",
+    "resultVersion": "c-501",
     "unit": "%"
   }
 }
@@ -225,16 +225,16 @@ A query always concerns one indicator, so the columns are fixed by its definitio
 
 | Column | Content |
 | ------ | ------- |
-| `indicator_id`, `definition_version`, `result_version` | Identifier of the indicator, version of the definition, result version |
+| `indicatorId`, `definitionVersion`, `resultVersion` | Identifier of the indicator, version of the definition, result version |
 | One column per dimension | Code from the code list of the dimension, in the order of the indicator definition |
-| `time_period` | Time period in the SDMX time format |
+| `timePeriod` | Time period in the SDMX time format |
 | `value` | Value; empty if missing |
-| `observation_status` | Code from `CL_OBS_STATUS`; stated in every row, including `A` for normal values |
-| `unit_multiplier` | Code from `CL_UNIT_MULT` |
-| `based_on_withdrawn` | `true` if the result version is based on a withdrawn dataset version, otherwise `false`; the same in every row |
+| `observationStatus` | Code from `CL_OBS_STATUS`; stated in every row, including `A` for normal values |
+| `unitMultiplier` | Code from `CL_UNIT_MULT` |
+| `basedOnWithdrawn` | `true` if the result version is based on a withdrawn dataset version, otherwise `false`; the same in every row |
 
 ```csv
-indicator_id,definition_version,result_version,region,time_period,value,observation_status,unit_multiplier,based_on_withdrawn
+indicatorId,definitionVersion,resultVersion,region,timePeriod,value,observationStatus,unitMultiplier,basedOnWithdrawn
 ur,2,c-501,R01,2023,3.9,A,0,false
 ur,2,c-501,R01,2024,4.2,P,0,false
 ur,2,c-501,R02,2023,3.4,A,0,false
@@ -243,9 +243,9 @@ ur,2,c-501,R02,2024,3.7,P,0,false
 
 ## Provenance, export and downloads
 
-* `GET /lineage/{id}` returns the provenance record of a calculation as W3C PROV-O in JSON-LD.
-* `GET /datasets/{id}/versions/{v}/export?format=csv` exports the content of a dataset version as a CSV file.
-* Results above a configured size are delivered as an asynchronous download via `GET /downloads/{id}`.
+* `GET /v1/lineage/{calculationId}` returns the provenance record of a calculation as W3C PROV-O in JSON-LD.
+* `GET /v1/datasets/{datasetId}/contents/{version}?format=csv` exports the content of a dataset version as a CSV file.
+* Results above a configured size are delivered as an asynchronous download that is polled via `GET /v1/downloads/{downloadId}` and fetched via `GET /v1/downloads/{downloadId}/content`.
 
 ## Authorisation
 

@@ -6,7 +6,7 @@ This section lists terms that this specification uses in a specific sense. Gener
 
 | Term | Description |
 | ---- | ----------- |
-| **Calculation** | One run that produces indicator values from an indicator definition version and the dataset versions it uses. It runs asynchronously and has the status `running`, `succeeded` or `failed`. A calculation, the result version it produces and its provenance record share the same identifier. |
+| **Calculation** | One run that produces indicator values from an indicator definition version and the dataset versions it uses. It runs asynchronously and has the status `PENDING`, `RUNNING`, `SUCCEEDED` or `FAILED`. A calculation, the result version it produces and its provenance record share the same identifier. |
 | **Calculation language** | The language in which the calculation of an indicator definition is written, given with the definition (for example `vtl-2.1` or `ossie-<version>`). Languages defined by an implementation carry the prefix `x-`. |
 | **Code list** | The permitted codes of a field and their labels. The building block derives code lists from the `categories` of the fields in a table schema. A code list is identified as `<dataset_id>.<field>`, and its version is the schema version it was taken from. |
 | **Consuming system** | A system that reads indicator values or datasets from the building block, for example a dashboard, a BI tool, a business application or an open data portal. |
@@ -24,13 +24,13 @@ This section lists terms that this specification uses in a specific sense. Gener
 | **Origin** | Whether a dataset was delivered to the building block (`ORIGINAL`) or produced by the building block itself from other dataset versions (`DERIVED`). The building block sets the origin itself. |
 | **Processing stage** | A label for the degree of processing of a dataset, taken from a code list that each installation defines, for example _raw / harmonised_ or _bronze / silver / gold_. |
 | **Provenance record** | The permanent record of how a result version or derived dataset version was produced: the definition version, the identifiers and checksums of the input dataset versions, the supplying systems and the points in time. It contains no personal data and is kept even after the underlying data has been deleted. |
-| **Receipt** | The acknowledgement of a delivery, with its own identifier and the status `validating`, `accepted` or `rejected`. An accepted receipt names the new dataset version and its checksum. |
+| **Receipt** | The acknowledgement of a delivery, with its own identifier and the status `VALIDATING`, `ACCEPTED` or `REJECTED`. An accepted receipt names the new dataset version and its checksum. |
 | **Result version** | The immutable set of indicator values produced by one calculation. Queries return the latest result version unless an earlier one is requested. |
 | **Schema** | The description of the fields of a dataset as a Table Schema of the Data Package Standard 2.0, against which every delivery is validated. Schemas are versioned. |
 | **Subscribing system** | A system that has registered a subscription and receives events. |
 | **Subscription** | The registration of a subscribing system for one or more event types and a callback endpoint (`sink`). |
 | **Supplying system** | A system that delivers dataset versions to the building block, for example a registry or a business application. |
-| **Withdrawal** | Removing a dataset version that should never have been delivered (for example test data or personal data delivered by mistake). The content is deleted; the metadata remain with the status `withdrawn` and the reason. Only data stewards can withdraw. |
+| **Withdrawal** | Removing a dataset version that should never have been delivered (for example test data or personal data delivered by mistake). The content is deleted; the metadata remain with the status `WITHDRAWN` and the reason. Only data stewards can withdraw. |
 
 ## 3.2 Abbreviations and standards
 

@@ -41,16 +41,18 @@ This draft recommends **Option 1**, following the principle *SDMX as the model, 
 
 ### Consequences
 
-* `GET /indicators/{indicator_id}/values` returns a JSON-stat 2.0 dataset by default and CSV on request (`format=csv`)
+* `GET /v1/indicators/{indicatorId}/values` returns a JSON-stat 2.0 dataset by default and CSV on request (`format=csv`)
 * The mapping of indicator, dimensions, values and status to JSON-stat is fixed by this specification (see the mapping table in `spec/requirements/data-access.md`)
-* Values that JSON-stat does not provide for, such as `indicator_id`, `definition_version`, `result_version`, `unit` and `based_on_withdrawn`, are carried in the JSON-stat property `extension`
+* Values that JSON-stat does not provide for, such as `indicatorId`, `definitionVersion`, `resultVersion`, `unit` and `basedOnWithdrawn`, are carried in the JSON-stat property `extension`
 * Code lists are additionally published as JSON-stat dimension responses
 * Indicators may additionally be listed as a JSON-stat collection (recommended)
 * The full SDMX REST interface is not part of this version
 
 ### Confirmation
 
-Confirmed by the Analytics Working Group. The outcome is implemented in the Data Access requirements, in section 7.2.5 and in the operation `getValues` and the schema `JsonStatDataset` of `api/swagger.yaml`.
+Confirmed by the Analytics Working Group. The outcome is implemented in the Data Access requirements, in section 7.2.5 and in the operation `getValues` and the schema `JsonStatDataset` of `api/openapi.yaml`.
+
+Amended on 2026-11-03: the API definition was aligned with the [GovStack Cross-BB API Design Guide](https://github.com/jeremi/govstack-api-design-guide) 0.3.0-draft. The path is now `/v1/indicators/{indicatorId}/values`, and the fields in `extension` and the CSV columns are camelCase. The decision for JSON-stat 2.0 and SDMX is unchanged.
 
 ## Pros and Cons of the Options
 

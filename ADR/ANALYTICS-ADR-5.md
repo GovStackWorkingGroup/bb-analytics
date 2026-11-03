@@ -38,12 +38,12 @@ Events go to systems built with different products and languages, and subscriber
 
 *To be completed by the Analytics Working Group.*
 
-This draft recommends **Option 1**. CloudEvents is a graduated CNCF specification with SDKs for common languages and protocol bindings for HTTP, Kafka, AMQP and MQTT. It defines the common metadata, and the specification adds only what is specific to this building block: the type prefix `org.govstack.analytics`, the `subject` as path of the affected resource and the content of `data` per event type.
+This draft recommends **Option 1**. CloudEvents is a graduated CNCF specification with SDKs for common languages and protocol bindings for HTTP, Kafka, AMQP and MQTT. It defines the common metadata, and the specification adds only what is specific to this building block: the type prefix `global.govstack.analytics`, the `subject` as path of the affected resource and the content of `data` per event type.
 
 ### Consequences
 
 * Every event is a CloudEvents 1.0 message in structured JSON format with `specversion`, `id`, `source` (base address of the installation), `type`, `time` and `subject`
-* Event types start with the reversed domain name `org.govstack.analytics`, following the CloudEvents recommendation
+* Event types start with the reversed domain name `global.govstack.analytics`, following the CloudEvents recommendation and the GovStack API Design Guide
 * The field names of the subscription resource follow the CloudEvents Subscriptions API. Because that API is a working draft (0.1-wip), the resource is defined in this specification until a version 1.0 appears
 * Every event is signed so that the recipient can verify sender and integrity
 * Open: the signature method for events, which CloudEvents does not define (candidates include HTTP Message Signatures, RFC 9421, and the signature scheme of Standard Webhooks)
@@ -51,7 +51,9 @@ This draft recommends **Option 1**. CloudEvents is a graduated CNCF specificatio
 
 ### Confirmation
 
-Confirmed by the Analytics Working Group. The outcome is implemented in the Publication Events requirements, in the event catalogue, in section 7.2.7 and in the subscription operations and webhooks of `api/swagger.yaml`.
+Confirmed by the Analytics Working Group. The outcome is implemented in the Publication Events requirements, in the event catalogue, in section 7.2.7 and in the subscription operations and webhooks of `api/openapi.yaml`.
+
+Amended on 2026-11-03: the API definition was aligned with the [GovStack Cross-BB API Design Guide](https://github.com/jeremi/govstack-api-design-guide) 0.3.0-draft. Following rule 16.3 of the guide, event types start with `global.govstack.analytics` instead of `org.govstack.analytics`, and `dataset.version.content_removed` is renamed `dataset.version.contentRemoved`. The decision for CloudEvents 1.0 is unchanged.
 
 ## Pros and Cons of the Options
 

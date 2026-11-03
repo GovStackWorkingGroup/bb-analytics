@@ -9,7 +9,7 @@ The Analytics Building Block extends the GovStack [cross-functional requirements
 The following topics are fully covered by the CFRs and are not specified again here:
 
 * **Transport and security:** HTTP according to RFC 9110 over TLS, API versioning and access logging.
-* **Authentication:** every request carries a bearer token according to RFC 6750, issued through the Identity BB. The building block checks the roles in the token; it defines no authentication mechanism of its own.
+* **Authentication:** every request carries an OAuth 2.0 access token (bearer token according to RFC 6750), issued through the Identity BB; officials use user tokens, systems and other building blocks use client credentials (see [Section 8](8-service-apis.md)). The building block checks the roles in the token; it defines no authentication mechanism of its own.
 * **Exchange across organisational boundaries:** deliveries from other organisations go through the Information Mediator.
 * **Operation:** availability, deployment, scaling and infrastructure are governed by the CFRs on deployment and by the Cloud Infrastructure BB.
 

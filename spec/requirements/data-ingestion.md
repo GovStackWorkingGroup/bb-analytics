@@ -32,7 +32,7 @@ requirements:
     interaction: SERVICE_API
     statement: The Analytics Building Block numbers the dataset versions of a dataset consecutively starting at 1 and states dataset and version number as separate values in receipts and events.
     documentation: |
-      Constraint: where a single identifier is needed, it is written `<dataset_id>:<version>`.
+      Constraint: where a single identifier is needed, it is written `<datasetId>:<version>`.
     api_operation_id: getReceipt
   - status: DRAFT
     level: REQUIRED
@@ -44,7 +44,7 @@ requirements:
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block withdraws a dataset version on DELETE /datasets/{id}/versions/{v} with a stated reason by deleting its content and keeping its metadata with the status withdrawn and the reason.
+    statement: The Analytics Building Block withdraws a dataset version on POST /v1/datasets/{datasetId}/versions/{version}/withdraw with a stated reason by deleting its content and keeping its metadata with the status WITHDRAWN and the reason.
     api_operation_id: withdrawDatasetVersion
   - status: DRAFT
     level: REQUIRED
@@ -109,7 +109,7 @@ Before a supplying system can deliver, the dataset must exist in the catalogue w
 
 A dataset version is delivered as a **Data Package** according to Data Package Standard 2.0. The package is the envelope, the Table Schema is the basis for validation, and the data file itself may be CSV or JSON Lines. Every package and every schema states its version in the field `$schema` (for example `https://datapackage.org/profiles/2.0/tableschema.json`).
 
-The delivery is answered with `202 Accepted` and a **receipt**. Validation runs asynchronously; the receipt has the status `validating`, `accepted` or `rejected`. An accepted receipt names the new dataset version and its checksum. Supplying systems can poll the receipt or subscribe to the event `delivery.checked` instead (see [Publication Events](publication-events.md)). Polling is optional: the building block validates, creates the dataset version and sends its events whether or not the receipt is ever retrieved.
+The delivery is answered with `202 Accepted` and a **receipt**. Validation runs asynchronously; the receipt has the status `VALIDATING`, `ACCEPTED` or `REJECTED`. An accepted receipt names the new dataset version and its checksum. Supplying systems can poll the receipt or subscribe to the event `delivery.checked` instead (see [Publication Events](publication-events.md)). Polling is optional: the building block validates, creates the dataset version and sends its events whether or not the receipt is ever retrieved.
 
 The header `Idempotency-Key` prevents a duplicate version if a delivery is repeated after a network error.
 
@@ -128,4 +128,4 @@ The header `Idempotency-Key` prevents a duplicate version if a delivery is repea
 Dataset versions are immutable. There are two ways of dealing with faulty deliveries, depending on whether the data is merely wrong or should never have arrived:
 
 * **Correction.** Wrong but harmless data, such as a wrong reference date or a typo, is replaced by a corrected delivery. It becomes the next version, `latest` points to it, and the next calculation produces a new result version. The faulty version and the result versions based on it remain part of the history.
-* **Withdrawal.** Data that should never have arrived, such as the wrong dataset, test data or personal data delivered by mistake, is withdrawn by a data steward with `DELETE /datasets/{id}/versions/{v}` and a reason. The building block deletes the content, keeps the metadata with the status `withdrawn` and the reason, and sends `dataset.version.withdrawn`. `latest` and new calculations skip the version. Result versions based on it remain retrievable but are marked `based_on_withdrawn` in the values API; a new calculation with the last valid version restores the correct state. Supplying systems cannot withdraw.
+* **Withdrawal.** Data that should never have arrived, such as the wrong dataset, test data or personal data delivered by mistake, is withdrawn by a data steward with `POST /v1/datasets/{id}/versions/{v}/withdraw` and a reason. The building block deletes the content, keeps the metadata with the status `withdrawn` and the reason, and sends `dataset.version.withdrawn`. `latest` and new calculations skip the version. Result versions based on it remain retrievable but are marked `basedOnWithdrawn` in the values API; a new calculation with the last valid version restores the correct state. Supplying systems cannot withdraw.

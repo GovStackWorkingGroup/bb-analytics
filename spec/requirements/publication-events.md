@@ -49,7 +49,7 @@ requirements:
     level: RECOMMENDED
     observability: OBSERVABLE
     interaction: EVENT
-    statement: The Analytics Building Block sends the recommended events delivery.checked and dataset.version.content_removed of the event catalogue.
+    statement: The Analytics Building Block sends the recommended events delivery.checked and dataset.version.contentRemoved of the event catalogue.
   - status: DRAFT
     level: REQUIRED
     observability: OBSERVABLE
@@ -89,22 +89,22 @@ requirements:
 
 ## Subscriptions
 
-A system subscribes with `POST /subscriptions`, stating the event types, its callback endpoint (`sink`) and the protocol (in the core always `HTTP`). The subscription is bound to the authenticated caller. The building block assigns the identifier, which the subscriber needs to unsubscribe with `DELETE /subscriptions/{id}`. A validation request to the callback endpoint before events are sent there is recommended.
+A system subscribes with `POST /v1/subscriptions`, stating the event types, its callback endpoint (`sink`) and the protocol (in the core always `HTTP`). The subscription is bound to the authenticated caller. The building block assigns the identifier, which the subscriber needs to unsubscribe with `DELETE /v1/subscriptions/{subscriptionId}`; `GET /v1/subscriptions` lists its subscriptions. A validation request to the callback endpoint before events are sent there is recommended.
 
 The field names of the subscription follow the CNCF CloudEvents Subscriptions API. Because that API is a working draft (0.1-wip), the subscription resource is defined in this specification itself until a version 1.0 appears.
 
 ## Event catalogue
 
-The building block only distributes the events of this catalogue. Every event is a CloudEvents 1.0 message in structured JSON format and always carries `specversion`, `id`, `source` (base address of the installation), `type`, `time` and `subject` (path of the affected resource). Following the CloudEvents recommendation, the type starts with a reversed domain name, here `org.govstack.analytics`. The field `data` contains only identifiers and version information, never data values. An event only goes to subscribers that may read the affected resource; the only exception is `delivery.checked` to the supplying system. Dataset versions are identified in events by the separate values `dataset_id` and `version`.
+The building block only distributes the events of this catalogue. Every event is a CloudEvents 1.0 message in structured JSON format and always carries `specversion`, `id`, `source` (base address of the installation), `type`, `time` and `subject` (path of the affected resource). Following the CloudEvents recommendation and the GovStack API Design Guide, the type starts with a reversed domain name that contains the BB code, here `global.govstack.analytics`. The field `data` contains only identifiers and version information, never data values. An event only goes to subscribers that may read the affected resource; the only exception is `delivery.checked` to the supplying system. Dataset versions are identified in events by the separate values `datasetId` and `version`.
 
 | Type (without prefix) | Trigger | `subject` | Content of `data` | Level |
 | --------------------- | ------- | --------- | ----------------- | ----- |
-| `dataset.version.published` | A delivery was validated and accepted as a new dataset version | `datasets/{dataset_id}` | `dataset_id`, `version`, `schema_version`, `checksum` | Required |
-| `dataset.version.withdrawn` | A data steward withdrew a dataset version | `datasets/{dataset_id}` | `dataset_id`, `version`, `reason` | Required |
-| `indicator.definition.published` | A new version of an indicator definition was published | `indicators/{indicator_id}` | `indicator_id`, `definition_version` | Required |
-| `indicator.values.published` | A calculation produced a new result version | `indicators/{indicator_id}` | `indicator_id`, `definition_version`, `result_version` | Required |
-| `indicator.calculation.failed` | A calculation failed; no new result version was produced | `indicators/{indicator_id}` | `indicator_id`, `definition_version`, `calculation_id` | Required |
-| `delivery.checked` | Validation of a delivery is complete, accepted or rejected | `receipts/{receipt_id}` | `receipt_id`, `dataset_id`, `status`; if accepted also `version`, `checksum` and `received_at` | Recommended |
-| `dataset.version.content_removed` | The content of a dataset version was deleted or anonymised under an operational rule; the metadata remain | `datasets/{dataset_id}` | `dataset_id`, `version` | Recommended |
+| `dataset.version.published` | A delivery was validated and accepted as a new dataset version | `datasets/{datasetId}` | `datasetId`, `version`, `schemaVersion`, `checksum` | Required |
+| `dataset.version.withdrawn` | A data steward withdrew a dataset version | `datasets/{datasetId}` | `datasetId`, `version`, `reason` | Required |
+| `indicator.definition.published` | A new version of an indicator definition was published | `indicators/{indicatorId}` | `indicatorId`, `definitionVersion` | Required |
+| `indicator.values.published` | A calculation produced a new result version | `indicators/{indicatorId}` | `indicatorId`, `definitionVersion`, `resultVersion` | Required |
+| `indicator.calculation.failed` | A calculation failed; no new result version was produced | `indicators/{indicatorId}` | `indicatorId`, `definitionVersion`, `calculationId` | Required |
+| `delivery.checked` | Validation of a delivery is complete, accepted or rejected | `receipts/{receiptId}` | `receiptId`, `datasetId`, `status`; if accepted also `version`, `checksum` and `receivedAt` | Recommended |
+| `dataset.version.contentRemoved` | The content of a dataset version was deleted or anonymised under an operational rule; the metadata remain | `datasets/{datasetId}` | `datasetId`, `version` | Recommended |
 
 `delivery.checked` is meant for supplying systems: they can subscribe to the receipt instead of polling it. It always goes to the system that made the delivery, regardless of whether that system may read the dataset, because it is that system's own receipt.

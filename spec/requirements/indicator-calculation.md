@@ -50,7 +50,7 @@ requirements:
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block accepts a calculation request on POST /indicators/{id}/calculations asynchronously and answers with 202 and the identifier of the calculation.
+    statement: The Analytics Building Block accepts a calculation request on POST /v1/indicators/{indicatorId}/calculations asynchronously and answers with 202 and the identifier of the calculation.
     documentation: |
       Constraint: the identifier of the calculation is also the identifier of the result version and
       of the provenance record.
@@ -59,7 +59,7 @@ requirements:
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block returns on GET /calculations/{id} the status of a calculation (running, succeeded, failed) and, on failure, the cause according to RFC 9457.
+    statement: The Analytics Building Block returns on GET /v1/calculations/{calculationId} the status of a calculation (PENDING, RUNNING, SUCCEEDED, FAILED) and, on failure, the cause according to RFC 9457.
     api_operation_id: getCalculation
   - status: DRAFT
     level: REQUIRED
@@ -123,7 +123,7 @@ The **indicator definition** is at the centre of this building block: a binding,
 
 ## Definitions and definition versions
 
-A data steward creates an indicator with `POST /indicators` and adds definition versions with `POST /indicators/{id}/versions`. Creating a definition version publishes it at the same time; from then on it is immutable. If formula, unit, scope or a dimension changes (for example new district boundaries), a new definition version is created, and values calculated with the old one stay linked to it.
+A data steward creates an indicator with `POST /v1/indicators` and adds definition versions with `POST /v1/indicators/{id}/versions`. Creating a definition version publishes it at the same time; from then on it is immutable. If formula, unit, scope or a dimension changes (for example new district boundaries), a new definition version is created, and values calculated with the old one stay linked to it.
 
 The structure of a definition follows SDMX (Data Structure Definition and Dataflow). The **calculation** states its language. There is no mandatory language; VTL 2.1 and Apache Ossie are recommended. Definitions are therefore only portable between products that share a language, while inputs and outputs remain interchangeable regardless.
 
@@ -133,7 +133,7 @@ The dimensions of an indicator do not follow directly from the field roles of it
 
 ## Calculations and result versions
 
-A calculation is started with `POST /indicators/{id}/calculations` and runs asynchronously. Its status is retrieved with `GET /calculations/{id}`. A successful calculation produces a new, immutable **result version**; a failed one produces none and is announced with `indicator.calculation.failed`. Calculation, result version and provenance record share the same identifier.
+A calculation is started with `POST /v1/indicators/{id}/calculations` and runs asynchronously. Its status is retrieved with `GET /v1/calculations/{id}`. A successful calculation produces a new, immutable **result version**; a failed one produces none and is announced with `indicator.calculation.failed`. Calculation, result version and provenance record share the same identifier.
 
 Calculations can also be started on a schedule by the Scheduler BB, which only needs the same operation.
 

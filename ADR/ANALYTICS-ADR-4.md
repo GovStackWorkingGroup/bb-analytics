@@ -16,7 +16,7 @@ informed:
 
 Traceable provenance is the central promise of the Analytics Building Block: for every value it is known which definition version and which dataset versions it was calculated from (see `spec/2-description.md`, 2.1). Every calculation produces exactly one result version and one **provenance record**. The record is kept permanently, also after the underlying data has been deleted or withdrawn, and contains no personal data (see `spec/7-data-structures.md`, 7.2.6). Derived dataset versions have a provenance record as well.
 
-The provenance record is retrieved through `GET /lineage/{id}`. The specification needs a format for it that auditors and other systems can read across products and over many years.
+The provenance record is retrieved through `GET /v1/lineage/{id}`. The specification needs a format for it that auditors and other systems can read across products and over many years.
 
 ## Decision Drivers
 
@@ -41,15 +41,17 @@ This draft recommends **Option 1**. PROV-O is a W3C Recommendation whose core te
 
 ### Consequences
 
-* `GET /lineage/{id}` returns the provenance record as PROV-O in JSON-LD (see `spec/requirements/data-access.md`)
-* The calculation is identified as `urn:analytics:calculation:<calculation_id>`; the same identifier names the result version
+* `GET /v1/lineage/{id}` returns the provenance record as PROV-O in JSON-LD (see `spec/requirements/data-access.md`)
+* The calculation is identified as `urn:analytics:calculation:<calculationId>`; the same identifier names the result version
 * Each input dataset version in `prov:used` carries its checksum (`checksum`, a term of this specification), its supplying system (`prov:wasAttributedTo`) and its time of receipt (`dct:issued`)
-* The field `supplied_by` of a dataset version maps to `prov:wasAttributedTo` in the catalogue context as well
+* The field `suppliedBy` of a dataset version maps to `prov:wasAttributedTo` in the catalogue context as well
 * Open: whether the provenance record uses the same JSON-LD context document as the catalogue or a context of its own
 
 ### Confirmation
 
-Confirmed by the Analytics Working Group. The outcome is implemented in the Data Access and Data Catalogue requirements, in section 7.2.6 and in the operation `getLineage` and the schema `ProvActivity` of `api/swagger.yaml`.
+Confirmed by the Analytics Working Group. The outcome is implemented in the Data Access and Data Catalogue requirements, in section 7.2.6 and in the operation `getLineage` and the schema `ProvActivity` of `api/openapi.yaml`.
+
+Amended on 2026-11-03: the API definition was aligned with the [GovStack Cross-BB API Design Guide](https://github.com/jeremi/govstack-api-design-guide) 0.3.0-draft. The path is now `/v1/lineage/{calculationId}` and the dataset version field is `suppliedBy`. The decision for PROV-O in JSON-LD is unchanged.
 
 ## Pros and Cons of the Options
 

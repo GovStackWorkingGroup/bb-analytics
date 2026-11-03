@@ -12,7 +12,7 @@ requirements:
     observability: OBSERVABLE
     interaction: SERVICE_API
     statement: The Analytics Building Block lists its datasets and indicators with their versions through the catalogue API.
-    api_operation_id: getCatalogue
+    api_operation_id: listDatasets
   - status: DRAFT
     level: REQUIRED
     observability: OBSERVABLE
@@ -23,25 +23,25 @@ requirements:
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block lists on GET /datasets/{id}/versions all versions of a dataset with number, schema version, time of receipt, checksum and status, including withdrawn versions and versions whose content was deleted.
+    statement: The Analytics Building Block lists on GET /v1/datasets/{datasetId}/versions all versions of a dataset with number, schema version, time of receipt, checksum and status, including withdrawn versions and versions whose content was deleted.
     api_operation_id: listDatasetVersions
   - status: DRAFT
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block returns on GET /datasets/{id} the catalogue entry of a dataset with a reference to its current schema, its latest valid version, a reference to all versions and the dependent indicators.
+    statement: The Analytics Building Block returns on GET /v1/datasets/{datasetId} the catalogue entry of a dataset with a reference to its current schema, its latest valid version, a reference to all versions and the dependent indicators.
     api_operation_id: getDataset
   - status: DRAFT
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block returns the current Table Schema of a dataset on GET /datasets/{id}/schema.
+    statement: The Analytics Building Block returns the current Table Schema of a dataset on GET /v1/datasets/{datasetId}/schema.
     api_operation_id: getCurrentSchema
   - status: DRAFT
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
-    statement: The Analytics Building Block returns every earlier Table Schema of a dataset on GET /datasets/{id}/schema/{schema_version}.
+    statement: The Analytics Building Block returns every earlier Table Schema of a dataset on GET /v1/datasets/{datasetId}/schema/{schemaVersion}.
     api_operation_id: getSchemaVersion
   - status: DRAFT
     level: REQUIRED
@@ -86,14 +86,14 @@ requirements:
     observability: OBSERVABLE
     interaction: SERVICE_API
     statement: The Analytics Building Block stores the processing stage of a dataset from a code list defined by the installation and allows the catalogue to be filtered by it.
-    api_operation_id: getCatalogue
+    api_operation_id: listDatasets
   - status: DRAFT
     level: REQUIRED
     observability: OBSERVABLE
     interaction: SERVICE_API
     statement: The Analytics Building Block generates the code lists of its indicators from the property categories of the fields in the Table Schemas of the input datasets and publishes them in the catalogue and as JSON-stat dimension responses.
     documentation: |
-      Constraint: a code list is identified as `<dataset_id>.<field>`, and its version is the schema
+      Constraint: a code list is identified as `<datasetId>.<field>`, and its version is the schema
       version it was taken from.
     api_operation_id: getCodelist
   - status: DRAFT
@@ -110,7 +110,7 @@ The catalogue is the place where datasets are created and described, and where e
 
 ## Datasets and schemas
 
-A data steward creates a dataset with `POST /datasets` and registers its schema with `PUT /datasets/{id}/schema`. The schema is a **Table Schema** according to Data Package Standard 2.0; its version is stated in the field `$schema`. Every change to the schema creates a new schema version, and earlier schema versions remain retrievable.
+A data steward creates a dataset with `POST /v1/datasets` and registers its schema with `PUT /v1/datasets/{id}/schema`. The schema is a **Table Schema** according to Data Package Standard 2.0; its version is stated in the field `$schema`. Every change to the schema creates a new schema version, and earlier schema versions remain retrievable.
 
 ## Origin and processing stage
 
@@ -139,18 +139,18 @@ Permitted codes and their labels are stated in the Table Schema in the property 
 
 ## DCAT through a JSON-LD context
 
-The responses of the reading catalogue endpoints (`GET /catalogue`, `GET /datasets/{id}`, `GET /datasets/{id}/versions`) remain plain JSON with the field names of this specification, but carry an `@context` that refers to a context document of the specification. It maps every field to its term in DCAT 3, DCTERMS or PROV-O. Simple clients can ignore the `@context`; for linked data tools the response is valid DCAT. Requests remain plain JSON without a context.
+The responses of the reading catalogue endpoints (`GET /v1/catalogue`, `GET /v1/datasets`, `GET /v1/datasets/{id}`, `GET /v1/datasets/{id}/versions`, `GET /v1/indicators`) remain plain JSON with the field names of this specification, but carry an `@context` that refers to a context document of the specification. It maps every field to its term in DCAT 3, DCTERMS or PROV-O. Simple clients can ignore the `@context`; for linked data tools the response is valid DCAT. Requests remain plain JSON without a context.
 
 | Field | Term |
 | ----- | ---- |
-| `dataset_id` | `dct:identifier` |
+| `datasetId` | `dct:identifier` |
 | `title` | `dct:title` |
 | `publisher` | `dct:publisher` |
 | `schema` | `dct:conformsTo` |
 | `version` | `dcat:version` |
-| `versions` | `dcat:hasVersion` |
-| `latest_version` | `dcat:hasCurrentVersion` |
-| `received_at` | `dct:issued` |
-| `supplied_by` | `prov:wasAttributedTo` |
+| `versionsHref` | `dcat:hasVersion` |
+| `latestVersion` | `dcat:hasCurrentVersion` |
+| `receivedAt` | `dct:issued` |
+| `suppliedBy` | `prov:wasAttributedTo` |
 
 Fields without a counterpart, such as `indicators`, `origin` or `checksum`, get terms in a namespace of this specification. The address of the context document is defined by the working group.

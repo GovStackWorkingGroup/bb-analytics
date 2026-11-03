@@ -41,7 +41,7 @@ requirements:
     interaction: SERVICE_API
     statement: The Analytics Building Block rejects a delivery that does not conform to the registered schema and names the violated rule.
     documentation:
-    api_operation_id: getReceipt      # operation in api/swagger.yaml
+    api_operation_id: getReceipt      # operation in api/openapi.yaml
 ---
 ```
 

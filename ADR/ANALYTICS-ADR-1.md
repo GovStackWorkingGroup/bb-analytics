@@ -63,7 +63,7 @@ This draft recommends **Option 1**. Table Schema describes a dataset by its logi
 
 ### Confirmation
 
-Confirmed by the Analytics Working Group. The outcome is implemented in the requirements of Data Ingestion and Data Catalogue, in section 7.2.3 and in the operations `deliverDatasetVersion` and `putSchema` of `api/swagger.yaml`.
+Confirmed by the Analytics Working Group. The outcome is implemented in the requirements of Data Ingestion and Data Catalogue, in section 7.2.3 and in the operations `deliverDatasetVersion` and `putSchema` of `api/openapi.yaml`.
 
 ## Pros and Cons of the Options
 
